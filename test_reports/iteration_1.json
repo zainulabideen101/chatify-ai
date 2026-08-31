@@ -1,0 +1,57 @@
+{
+  "summary": "Full backend + frontend E2E test of the AI WhatsApp Commerce Manager foundation build. Created pytest suite (72 tests) covering auth/JWT/cookies/bcrypt, registration + multi-tenant isolation (incl. cross-tenant 404), dashboard & all analytics, inbox (takeover -> send -> return-to-AI with persistence), products/orders/customers/COD/media CRUD, deterministic address + COD tools, merchant settings (AI settings, rules, KB, templates, audit logs), integrations status/Shopify 503/WhatsApp connect+disconnect, webhook verify handshake + signature rejection, auth protection on 14 endpoints, brute-force lockout. Result: 71/72 passed. Playwright UI tests: login, all 12 nav sections, conversation takeover/send/return, customer COD modal, AI Agent mode+toggle persistence, rules CRUD, media add, template create, KB create/delete, UI registration of a new merchant (verified empty tenant), Shopify not-configured error toast, WhatsApp connect/disconnect, session persistence, logout + protected-route redirect. All UI flows worked; found one multi-tenancy display bug and responsive/empty-state design gaps.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/ai-settings", "issue": "No enum/range validation. sales_mode='NOT_A_MODE' is accepted and persisted with 200 (expected 422). max_discount_percent/abandoned_delay_minutes likewise unbounded. Use Literal/enum + Field(ge/le) in AISettingsUpdate."},
+      {"endpoint": "POST /api/auth/login", "issue": "Brute-force lockout is keyed on request.client.host + email. Behind the k8s ingress the client IP rotates across pod IPs (observed 10.79.139.10 and .11 for the same client), so failed attempts fragment across identifiers and lockout only triggered after ~10 attempts instead of 5. Key on email (and/or X-Forwarded-For) and add a TTL index on login_attempts (currently grows unbounded, only cleared on successful login)."},
+      {"endpoint": "CORS (server.py)", "issue": "CORS_ORIGINS=\"*\" combined with allow_credentials=True is invalid for credentialed cross-origin requests (browsers reject wildcard with cookies); response carries no access-control-allow-credentials. Works today only because frontend and API share the same origin. Set CORS_ORIGINS to the explicit FRONTEND_URL."},
+      {"endpoint": "server.py startup", "issue": "Uses deprecated @app.on_event('startup'/'shutdown'); migrate to lifespan context (FastAPI deprecation warning)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Dashboard.jsx (line 14)", "issue": "PageHeader subtitle is hardcoded to 'TechGear Threads · Last 30 days'. A newly registered merchant (QA UI Store) sees the seeded demo store's name on its own dashboard — multi-tenancy presentation leak. Should use user.store_name from /api/auth/me.", "selector": "header h1 + p (dashboard subtitle)", "priority": "HIGH"},
+      {"component": "Conversations.jsx", "issue": "Left conversation list is fetched once (useFetch) and never reloaded after sending a message or take-over/return-to-AI, so last_message preview and the AI ACTIVE / HUMAN ACTIVE pill stay stale until a page reload.", "selector": "[data-testid^=\"conversation-\"]", "priority": "MEDIUM"},
+      {"component": "MediaLibrary.jsx / Templates.jsx", "issue": "No delete action in the UI although DELETE /api/media exists (media can only be added, never removed); templates have neither a UI delete nor a backend DELETE endpoint.", "selector": "[data-testid^=\"media-\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All pages (mobile/tablet)", "issues": ["No responsive layout: sidebar is fixed w-64 with main ml-64 at every breakpoint. At 390x844 document scrollWidth=606 vs clientWidth=390 (horizontal overflow), KPI values are clipped ('Rs. 3,1', 'CONVERSION RATIO 16'), and there is no hamburger/drawer nav."]},
+      {"screen": "Dashboard / Orders / Products / Conversations / Media (new tenant)", "issues": ["Missing empty states: 'Recent Conversations', 'Recent Orders' (table header renders with zero rows) and 'Top-Selling Products' panels are blank for a fresh merchant; Conversations page renders an empty thread pane with no 'No conversations yet' guidance. Only 'Needs Attention' has an 'All clear.' state."]},
+      {"screen": "Dashboard/Analytics KPI cards", "issues": ["Mono font renders currency with a visible double gap ('Rs.  3,199'); cosmetic only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix hardcoded 'TechGear Threads' dashboard subtitle in /app/frontend/src/pages/Dashboard.jsx — use the authenticated user's store_name (tenant leak in UI).",
+    "Add enum/range validation to AISettingsUpdate so invalid sales_mode returns 422 instead of being stored.",
+    "Harden login lockout: key attempts on email (or X-Forwarded-For) not request.client.host, and add a TTL index on login_attempts.",
+    "Set CORS_ORIGINS to the explicit FRONTEND_URL instead of '*' since allow_credentials=True.",
+    "Reload the conversation list after send/takeover/return-to-AI so previews and mode pills stay in sync.",
+    "Add empty states for new tenants (dashboard panels, orders/products/conversations/media pages) and a responsive/mobile layout (collapsible sidebar).",
+    "Optional: expose media delete in the UI and add a DELETE /api/templates/{id} endpoint."
+  ],
+  "critical_code_review_comments": [
+    "Dashboard subtitle hardcodes the demo tenant name — a multi-tenant SaaS must derive all displayed tenant identity from the auth context.",
+    "AISettingsUpdate uses plain Optional[str] for sales_mode; without Literal validation the AI persona can be set to an unknown mode which the future LLM prompt builder will not handle.",
+    "login_attempts identifier includes the proxy-assigned client IP; in any multi-replica ingress deployment this silently weakens brute-force protection.",
+    "All routers correctly scope queries by merchant_id and serialize() strips _id — verified no ObjectId/_id leakage and no cross-tenant reads (cross-tenant product GET returns 404).",
+    "WhatsApp/Shopify tokens are stored encrypted and never returned by /api/integrations/status — verified."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)",
+    "/app/backend/tests/conftest.py (new)"
+  ],
+  "success_rate": {"backend": "98.6% (71/72 pytest)", "frontend": "100% of tested flows functional (1 tenant-name display bug, design gaps noted)"},
+  "seed_data_creation": "Temporary QA data only: TEST_qa_* merchants/users, media, templates, business rules, KB docs, inbox messages, and UI-created 'QA UI Store' merchant. All were deleted after testing; seeded TechGear demo tenant verified intact afterwards (3 conversations, 3 orders, 4 products, Rs. 9,696 revenue).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "techgear008@gmail.com / TechGear#2026 (owner, from /app/memory/test_credentials.md) — valid and working; login returns access_token + httpOnly Secure SameSite=None cookies, bcrypt hashes verified $2b$ format.",
+  "context_for_next_testing_agent": "Pytest suite lives in /app/backend/tests (conftest.py provides owner_client/anon_client/test_credentials fixtures; pytest.ini runs -n 2 --dist loadscope). Known intentional non-connections (LLM/Shopify) are asserted as 'not configured' errors, not bugs. Only failing test: TestMerchantSettings::test_ai_settings_rejects_invalid_sales_mode (missing enum validation). TestBruteForceLockout needs 12 attempts due to rotating proxy IPs — see report. After a rerun, clean up TEST_qa_* users/merchants and TEST_qa messages/media/templates from Mongo.",
+  "rca_of_the_issue": "1) Tenant-name leak: Dashboard.jsx renders a literal string subtitle instead of user.store_name; backend /api/dashboard and /api/auth/me are correctly tenant-scoped (new merchant returned all-zero stats and empty lists). 2) Lockout weakness: login_attempts documents are keyed 'ip:email' and the ingress presents multiple upstream IPs for the same caller, so the per-identifier counter never reaches MAX_ATTEMPTS=5 within 5 tries (DB inspection showed counts of 2 and 5 split across 10.79.139.10/.11 for a single 7-attempt run). 3) ai-settings validation: update_ai_settings filters non-None fields and $sets them straight to Mongo with no enum check."
+}

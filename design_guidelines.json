@@ -1,0 +1,109 @@
+{
+  "project_context": {
+    "name": "AI WhatsApp Sales SaaS",
+    "audience": "Shopify merchants in Pakistan",
+    "theme_preference": "light",
+    "design_archetype": "SWISS & HIGH-CONTRAST",
+    "vibe": "Objective, rigid, functional, high-density, engineered"
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Cabinet Grotesk, General Sans, sans-serif",
+      "rules": "Strictly no Inter for headings. Use negative letter-spacing (tracking-tight or tracking-tighter) for a dense, engineered aesthetic. Weight: font-medium or font-semibold for clarity, do not default to black."
+    },
+    "body": {
+      "font_family": "Satoshi, IBM Plex Sans, sans-serif",
+      "rules": "Clean sans-serif. 14px (text-sm) base for data-heavy tables, 16px (text-base) for general reading. Use tabular-nums for all currency (Rs.) and numeric data cells."
+    },
+    "scale": {
+      "h1": "text-3xl sm:text-4xl tracking-tighter",
+      "h2": "text-2xl sm:text-3xl tracking-tight",
+      "h3": "text-lg sm:text-xl font-medium",
+      "body": "text-sm md:text-base text-foreground/80",
+      "micro": "text-xs tracking-wide uppercase text-muted-foreground"
+    }
+  },
+  "colors": {
+    "strategy": "Structural monochrome with high contrast. 95% of UI is monochrome. Color exists only to guide action.",
+    "theme_css_variables": {
+      "--background": "0 0% 99%",
+      "--foreground": "240 10% 4%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "240 10% 4%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "240 10% 4%",
+      "--primary": "240 10% 4%",
+      "--primary-foreground": "0 0% 98%",
+      "--secondary": "240 5% 96%",
+      "--secondary-foreground": "240 10% 4%",
+      "--muted": "240 5% 96%",
+      "--muted-foreground": "240 5% 45%",
+      "--border": "240 6% 90%",
+      "--input": "240 6% 90%",
+      "--ring": "240 10% 4%",
+      "--whatsapp": "142 71% 45%"
+    }
+  },
+  "layouts": {
+    "dashboard_grid": "High Density Grid. grid-cols-1 md:grid-cols-3 lg:grid-cols-4 with gap-4 or gap-6. KPI Cards span 1 col. Main charts span 2 or 3 cols.",
+    "spacing_scale": "Use 4px base scale. Generous padding inside containers (p-6 or p-8) if they have borders, to prevent text collision.",
+    "navigation": "Sidebar navigation (w-64) with a fixed top header (h-16) for breadcrumbs and global actions. Sidebar should have a very subtle border-r (border-border/60).",
+    "conversations_inbox": "3-pane layout: Sidebar (list), Middle (chat thread), Right (AI Insights/Customer Memory). h-[calc(100vh-4rem)] height with overflow-y-auto."
+  },
+  "visual_enhancers": {
+    "surfaces": "GRID BORDERS style. Expose the skeleton. Data cards use 1px border (border-border/60), pure white background (bg-card), and NO drop shadows. Flat, crisp, engineered.",
+    "radius": "Subtle roundness. Max 8px (rounded-md or rounded-lg). Do not use pill shapes for data cards.",
+    "glassmorphism": "Use ONLY for sticky headers or floating context menus: backdrop-blur-xl bg-white/70 with a 1px border-white/20.",
+    "borders": "Use border-border/40 or border-border/60 for subtle dividers."
+  },
+  "components": {
+    "buttons": "Primary: bg-primary text-primary-foreground hover:bg-primary/90. Crisp, slightly rounded (rounded-md). Height h-9 or h-10.",
+    "tables": "Dense. text-sm. Tabular numbers. border-b for rows, hover:bg-muted/50 on row hover.",
+    "kpi_cards": "Flat background, 1px subtle border, no shadow. Include a small sparkline or trend badge (+12%).",
+    "badges": "For order status. Soft background, text matching background hue but darker. E.g., bg-green-100 text-green-800 for Delivered."
+  },
+  "motion": {
+    "strategy": "Minimalist. Snap-to-feel. No long transitions.",
+    "rules": [
+      "Hover states must be instantaneous or max 150ms ease-out.",
+      "Accordion / Dropdown down/up transitions (200ms).",
+      "Do not use `transition-all`. Specify `transition-colors`, `transition-opacity`, or `transition-transform`."
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure minimum 4.5:1 ratio. Muted text must not go below text-gray-500 against white.",
+    "focus": "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "testing": "All interactive and key informational elements MUST include a `data-testid` attribute (kebab-case, role-based)."
+  },
+  "media": {
+    "strategy": "Functional realism. Use real imagery for products and user avatars.",
+    "image_urls": {
+      "merchant_avatars": [
+        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHByb2ZpbGUlMjBwaWN0dXJlfGVufDB8fHx8MTc4ODIwNzA3MHww&ixlib=rb-4.1.0&q=85",
+        "https://images.pexels.com/photos/29852895/pexels-photo-29852895.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      ],
+      "customer_avatars": [
+        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHByb2ZpbGUlMjBwaWN0dXJlfGVufDB8fHx8MTc4ODIwNzA3MHww&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1613822425851-d4b7756f4f22?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwzfHxwYWtpc3RhbmklMjBmYXNoaW9uJTIwbW9kZWx8ZW58MHx8fHwxNzg4MjA3MDcwfDA&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1649622482556-e710d0141d22?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwxfHxwYWtpc3RhbmklMjBmYXNoaW9uJTIwbW9kZWx8ZW58MHx8fHwxNzg4MjA3MDcwfDA&ixlib=rb-4.1.0&q=85"
+      ],
+      "products": [
+        "https://images.unsplash.com/photo-1487014679447-9f8336841d58?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHxlY29tbWVyY2UlMjBwcm9kdWN0JTIwaXNvbGF0ZWR8ZW58MHx8fHwxNzg4MjA3MDcwfDA&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1664455340023-214c33a9d0bd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxlY29tbWVyY2UlMjBwcm9kdWN0JTIwaXNvbGF0ZWR8ZW58MHx8fHwxNzg4MjA3MDcwfDA&ixlib=rb-4.1.0&q=85"
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use Phosphor Icons (@phosphor-icons/react) for a clean, technical SaaS look. Run: yarn add @phosphor-icons/react",
+    "Implement Sonner for all toast notifications. Run: yarn add sonner",
+    "Ensure all components use .js/.jsx extensions since this is a JS project, not TS.",
+    "DO NOT use generic centered layouts. Left-align text, especially in data tables.",
+    "NEVER use placeholder domains (via.placeholder.com). Use the provided image_urls.",
+    "DO NOT use `transition: all`. Target specific properties like `transition-colors`.",
+    "DO NOT use transparent backgrounds on headers or dropdowns. Always use bg-white or bg-background, optionally with backdrop-blur.",
+    "Dashboard metrics must be crisp. If using Recharts, use clean lines, no excessive grid lines, match colors to the theme variables.",
+    "Conversations view: Emulate a split-pane structural layout. Ensure the center pane (messages) has an internal scroll without scrolling the whole page.",
+    "Always include `data-testid` on interactive elements."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight. Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients. Don't make generic centered layouts, simplistic gradients, and uniform styling. Create depth through layered design elements with z-index hierarchy. Use glass-morphism effects with backdrop filters (12-24px blur). You MUST NOT apply universal transition (e.g., transition: all). Always add transitions for specific interactive elements excluding transforms. You MUST NOT center align the app container. Always use modern button styles like pill-shaped, or sharp button with interaction animations. NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons. Every interaction needs micro-animations. Use 2-3x more spacing than feels comfortable. Prioritize using pre-existing components from src/components/ui when applicable."
+}
