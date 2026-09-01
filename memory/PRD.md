@@ -70,3 +70,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Meta WhatsApp: META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN; per-merchant WABA token
 - LLM: EMERGENT_LLM_KEY (Emergent Universal Key) for GPT-5.4
 - APP_ENCRYPTION_KEY / JWT_SECRET already set.
+
+
+## Platform Integrations Status
+- Meta WhatsApp Embedded Signup is implemented as a platform-owned, tenant-scoped flow. Each tenant stores its own WABA ID, Phone Number ID, encrypted authorization token, connection state, and webhook routing under `merchant_id`.
+- Live Meta activation is **NOT CONFIGURED** until the platform owner provides `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, and `META_VERIFY_TOKEN` in backend secrets and completes Meta app/webhook setup.
+- `EMERGENT_LLM_KEY` is configured server-side; GPT-5.4 playground verification is working.
+- Frontend fail-closed behavior is verified: missing Meta platform config shows the warning, hides Embedded Signup, and keeps manual fields available.
