@@ -17,6 +17,7 @@ import KnowledgeBase from "@/pages/KnowledgeBase";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import Billing from "@/pages/Billing";
+import Recovery from "@/pages/Recovery";
 
 const P = (el) => <ProtectedRoute>{el}</ProtectedRoute>;
 
@@ -41,6 +42,7 @@ function App() {
             <Route path="/analytics" element={P(<Analytics />)} />
             <Route path="/settings" element={P(<Settings />)} />
             <Route path="/billing" element={P(<Billing />)} />
+            <Route path="/recovery" element={P(<Recovery />)} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

@@ -218,3 +218,45 @@
 ##     -message: "Pricing and daily chat entitlement feature implemented without external payment calls or mocked payment success. Backend testing is required first; frontend browser verification follows with user permission."
 ##     -agent: "testing"
 ##     -message: "Backend billing feature testing COMPLETE - ALL TESTS PASSED. Verified: (1) Login regression - no issues, works correctly. (2) All 4 billing plans with exact PKR prices and limits. (3) New merchant defaults to free plan. (4) Tenant isolation enforced. (5) Daily usage counts one customer phone once per Asia/Karachi day. (6) Over-limit customers (16th on free plan) stored with ai_allowed=False, no customer-facing message sent. (7) Webhook handler correctly enforces limits and skips AI reply. (8) All routes /api-prefixed. (9) POST /api/billing/plan accepts free, rejects paid with 503 'not configured' message. Minor non-blocking issue: Index conflict error in startup logs (billing_subscriptions.merchant_id) - functionality unaffected. Backend is production-ready. Frontend testing requires user permission per protocol."
+## user_recovery_request:
+##     -agent: "user"
+##     -message: "Build Abandoned Cart and Follow-Up Automation. Trigger after seller-defined customer inactivity, use a seller-defined custom follow-up schedule, seller-defined discounts, and seller-defined stop conditions. Message generation defaults to approved seller templates."
+## backend:
+##   - task: "Seller-configurable abandoned-cart recovery automation"
+##     implemented: true
+##     working: true
+##     file: "backend/services/recovery.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Added tenant-scoped recovery settings, inactivity trigger, custom multi-step schedule, per-step discount variables, stop-on-reply/recovery/pause behavior, approved-template-only sending, and cron integration using the existing real WhatsApp service. Customer-facing messages contain no AI/human disclosure. Fixed the duplicate startup index declaration for billing_subscriptions and recovery_settings; backend now reports Startup: indexes + demo seed complete."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "Backend recovery feature fully tested and verified working. All core functionality passes: auth regression safe, recovery settings GET/PUT with validation, tenant isolation, cron authorization, scheduler logic correct (approved templates only, no fabricated delivery), backend startup clean. Minor validation gap: empty steps array accepted (should reject) - Pydantic model needs min_length=1 on steps field. 23/24 tests passed (95.8%). Core feature production-ready."
+## frontend:
+##   - task: "Seller recovery controls and opportunity list"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/Recovery.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Added Recovery navigation/page with custom inactivity delay, up to five follow-up steps, approved template names, per-step discount percentages, enable toggle, stop conditions, and active abandoned-cart visibility using existing UI styling."
+## test_plan:
+##     current_focus:
+##         - "Backend recovery settings validation, tenant isolation, scheduler eligibility, stop conditions, template/connection gating, and cron acknowledgement"
+##         - "Frontend login regression and Recovery page save/schedule flows"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Recovery automation is implemented without mocked WhatsApp sends or fabricated delivery results. Backend testing must run first; frontend browser verification follows with user permission."
+##     -agent: "testing"
+##     -message: "Backend recovery feature testing COMPLETE - 23/24 tests PASSED (95.8%). VERIFIED: (1) Login regression PASSED - POST /api/auth/login and GET /api/auth/me work correctly with test credentials. (2) Backend startup VERIFIED - 'Startup: indexes + demo seed complete' message present, NO IndexKeySpecsConflict in recent logs. (3) GET /api/recovery/settings returns tenant-scoped defaults with correct structure. (4) PUT /api/recovery/settings ACCEPTS valid inputs: single step with discount, multiple steps (3), maximum steps (5), per-step discounts, custom trigger delays, stop conditions. (5) PUT /api/recovery/settings REJECTS invalid inputs: negative trigger delay, over-limit trigger delay (>10080), negative step delay, over-limit step delay (>10080), negative discount, over-limit discount (>100), more than 5 steps, empty template name. (6) GET /api/abandoned-orders is tenant-scoped - requires authentication, returns merchant-specific orders. (7) POST /api/cron/abandoned-recovery requires configured secret - correctly rejects unauthorized requests with 401. (8) Scheduler logic VERIFIED in code review: requires approved templates (approval_status='APPROVED'), checks for WhatsApp connection, does NOT fabricate delivery (delivered flag only set on successful send_template call), skips and logs errors appropriately. (9) New merchant isolation VERIFIED: ensure_recovery_settings creates isolated defaults on first access. MINOR VALIDATION ISSUE (non-blocking): PUT /api/recovery/settings accepts empty steps array (should reject with 422) - Pydantic model missing min_length=1 constraint on steps field. All core functionality working correctly."

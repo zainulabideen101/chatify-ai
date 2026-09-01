@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   SquaresFour, ChatCircleDots, Package, Users, TShirt, Images,
-  Robot, WhatsappLogo, FileText, BookOpen, ChartLineUp, Gear, SignOut, Storefront, List, X,
+  Robot, WhatsappLogo, FileText, BookOpen, ChartLineUp, Gear, SignOut, Storefront, List, X, ArrowClockwise,
 } from "@phosphor-icons/react";
 
 const NAV = [
@@ -20,6 +20,7 @@ const NAV = [
   { to: "/analytics", label: "Analytics", icon: ChartLineUp },
   { to: "/settings", label: "Settings", icon: Gear },
   { to: "/billing", label: "Plans & billing", icon: FileText },
+  { to: "/recovery", label: "Recovery", icon: ArrowClockwise },
 ];
 
 export function Layout({ children }) {

@@ -212,6 +212,9 @@ async def _process_whatsapp_inbound(payload: dict):
                             "cancelled_orders": 0, "refused_orders": 0, "failed_deliveries": 0,
                             "created_at": iso_now()})
                         customer = {"_id": cid_ins.inserted_id, "name": from_phone}
+                    await db.abandoned_orders.update_many(
+                        {"merchant_id": mid, "customer_id": customer["_id"], "status": "abandoned"},
+                        {"$set": {"last_customer_reply_at": iso_now()}})
                     conv = await db.conversations.find_one({"merchant_id": mid, "customer_phone": from_phone})
                     if not conv:
                         conv_ins = await db.conversations.insert_one({
