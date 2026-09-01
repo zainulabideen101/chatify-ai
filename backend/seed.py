@@ -29,6 +29,7 @@ async def ensure_indexes():
     await db["whatsapp_connections"].create_index("merchant_id", unique=True)
     await db["whatsapp_connections"].create_index("waba_id", unique=True, sparse=True)
     await db["whatsapp_connections"].create_index("phone_number_id", unique=True, sparse=True)
+    await db["shopify_orders"].create_index([("merchant_id", 1), ("shopify_order_id", 1)], unique=True, partialFilterExpression={"shopify_order_id": {"$type": "string"}})
     for coll in ["products", "product_variants", "product_media", "customers",
                  "conversations", "messages", "shopify_orders", "abandoned_orders",
                  "recommendation_events", "audit_logs", "business_rules",

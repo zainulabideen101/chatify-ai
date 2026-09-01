@@ -61,6 +61,16 @@ TOOL_SCHEMAS = [
             "city": {"type": "string"}, "payment_method": {"type": "string"}
         }, "required": ["items"]}}},
     {"type": "function", "function": {
+        "name": "create_shopify_order",
+        "description": "After the customer explicitly confirms the final order summary, create the order in the connected Shopify store and then save the same order in Chatify AI. Never claim success if the tool returns created=false.",
+        "parameters": {"type": "object", "properties": {
+            "items": {"type": "array", "items": {"type": "object", "properties": {
+                "product": {"type": "string"}, "size": {"type": "string"}, "color": {"type": "string"}, "quantity": {"type": "integer"}}}},
+            "customer_name": {"type": "string"}, "customer_phone": {"type": "string"},
+            "address": {"type": "string"}, "city": {"type": "string"},
+            "payment_method": {"type": "string", "enum": ["COD", "BANK_TRANSFER"]}
+        }, "required": ["items", "customer_name", "customer_phone", "address", "city", "payment_method"]}}},
+    {"type": "function", "function": {
         "name": "get_payment_instructions",
         "description": "Provide the merchant's current bank-transfer details and tell the customer to send a clear payment screenshot after transferring. Use when the customer wants to pay online by bank transfer.",
         "parameters": {"type": "object", "properties": {}}}},
@@ -181,6 +191,10 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
         return {"items": line_items, "subtotal": subtotal, "shipping": shipping,
                 "total": subtotal + shipping, "currency": "PKR",
                 "payment_method": args.get("payment_method", "COD")}
+
+    if name == "create_shopify_order":
+        from services.shopify_orders import create_customer_order
+        return await create_customer_order(mid, ctx.get("conversation_id"), args)
 
     if name == "get_payment_instructions":
         from services.payment_verification import customer_payment_instructions

@@ -18,13 +18,18 @@ class ShopifyNotConfigured(Exception):
     pass
 
 
+class ShopifyAPIError(Exception):
+    pass
+
+
 class ShopifyService:
     API_VERSION = "2024-10"
 
     def __init__(self):
         self.api_key = os.environ.get("SHOPIFY_API_KEY", "")
         self.api_secret = os.environ.get("SHOPIFY_API_SECRET", "")
-        self.scopes = os.environ.get("SHOPIFY_SCOPES", "read_products,read_orders")
+        self.API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
+        self.scopes = os.environ.get("SHOPIFY_SCOPES", "read_products,read_orders,write_orders,read_customers")
 
     @property
     def configured(self) -> bool:
@@ -142,18 +147,47 @@ class ShopifyService:
     async def create_order(self, shop_domain: str, access_token_enc: str, payload: dict) -> dict:
         """Create an order via Shopify Admin API. Never fake success."""
         if not self.configured or not access_token_enc:
-            raise ShopifyNotConfigured(
-                "Cannot create Shopify order: no authorized Shopify connection."
-            )
+            raise ShopifyNotConfigured("Cannot create Shopify order: no authorized Shopify connection.")
         import requests
         from services.crypto import decrypt_secret
         token = decrypt_secret(access_token_enc)
-        resp = requests.post(
-            f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders.json",
-            headers={"X-Shopify-Access-Token": token},
-            json={"order": payload}, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = requests.post(
+                f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders.json",
+                headers={"X-Shopify-Access-Token": token},
+                json={"order": payload}, timeout=30)
+        except requests.RequestException as exc:
+            raise ShopifyAPIError("Shopify order creation could not be reached.") from exc
+        if resp.status_code == 401 or resp.status_code == 403:
+            raise ShopifyAPIError("Shopify rejected the store access token or order permission.")
+        if resp.status_code == 429:
+            raise ShopifyAPIError("Shopify rate-limited order creation. Please retry shortly.")
+        if resp.status_code >= 400:
+            raise ShopifyAPIError("Shopify rejected the order payload.")
         return resp.json()["order"]
+
+    async def cancel_order(self, shop_domain: str, access_token_enc: str, shopify_order_id: str) -> dict:
+        """Cancel an open Shopify order through the official Admin API."""
+        if not self.configured or not access_token_enc:
+            raise ShopifyNotConfigured("Cannot cancel Shopify order: no authorized Shopify connection.")
+        import requests
+        from services.crypto import decrypt_secret
+        token = decrypt_secret(access_token_enc)
+        try:
+            resp = requests.post(
+                f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders/{shopify_order_id}/cancel.json",
+                headers={"X-Shopify-Access-Token": token},
+                json={"reason": "customer", "email": True}, timeout=30)
+        except requests.RequestException as exc:
+            raise ShopifyAPIError("Shopify cancellation could not be reached.") from exc
+        if resp.status_code == 401 or resp.status_code == 403:
+            raise ShopifyAPIError("Shopify rejected the store access token or order cancellation permission.")
+        if resp.status_code == 429:
+            raise ShopifyAPIError("Shopify rate-limited cancellation. Please retry shortly.")
+        if resp.status_code >= 400:
+            raise ShopifyAPIError("Shopify rejected the cancellation because the order may already be closed or cancelled.")
+        return resp.json().get("order", {})
+
 
 
 shopify_service = ShopifyService()

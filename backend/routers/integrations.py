@@ -266,6 +266,7 @@ async def _process_whatsapp_inbound(payload: dict):
     """
     from services.ai_agent import ai_agent, LLMNotConfigured
     from services.payment_verification import verify_payment_screenshot
+    from services.shopify_orders import is_cancellation_request, cancel_latest_customer_order
     try:
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
@@ -322,6 +323,24 @@ async def _process_whatsapp_inbound(payload: dict):
                         {"$set": {"last_message": message_body, "last_message_at": iso_now()}})
 
                     usage = await record_unique_chat(str(mid), from_phone)
+                    if text and is_cancellation_request(text):
+                        cancellation = await cancel_latest_customer_order(str(mid), from_phone)
+                        if cancellation.get("cancelled"):
+                            customer_reply = "Your order has been cancelled successfully."
+                        elif cancellation.get("code") == "order_not_found":
+                            customer_reply = "I couldn’t find an active order to cancel. Please share your order number so we can check it."
+                        else:
+                            customer_reply = "I’ve received your cancellation request. A seller will review it because Shopify could not confirm the cancellation yet."
+                        try:
+                            send_result = await whatsapp_service.send_text(conn, from_phone, customer_reply)
+                            await db.messages.insert_one({
+                                "conversation_id": conv["_id"], "merchant_id": mid, "direction": "outbound",
+                                "sender": "ai", "body": customer_reply, "status": "sent",
+                                "whatsapp_message_id": ((send_result.get("messages") or [{}])[0]).get("id"),
+                                "shopify_cancellation": cancellation.get("code") or "cancelled", "created_at": iso_now()})
+                        except Exception:
+                            pass
+                        continue
                     if image_payload:
                         if conv.get("mode") != "AI_ACTIVE" or not usage["ai_allowed"]:
                             await db.conversations.update_one(
@@ -386,6 +405,7 @@ async def whatsapp_incoming(request: Request, background: BackgroundTasks):
     if not meta_whatsapp_service.verify_signature(body, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
     try:
+
         payload = json.loads(body)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid webhook payload")
@@ -404,14 +424,71 @@ async def whatsapp_incoming(request: Request, background: BackgroundTasks):
 
 
 
+async def _sync_shopify_order_event(shop_domain: str, topic: str, payload: dict):
+    connection = await db.shopify_connections.find_one({"shop_domain": shop_domain})
+    if not connection or not payload.get("id"):
+        return
+    mid = connection["merchant_id"]
+    shopify_id = str(payload["id"])
+    now = iso_now()
+    financial_status = payload.get("financial_status")
+    fulfillment_status = payload.get("fulfillment_status")
+    updates = {"shopify_order_id": shopify_id, "shopify_synced_at": now}
+    if financial_status == "paid" or topic.endswith("/paid"):
+        updates["payment_status"] = "paid"
+    elif financial_status:
+        updates["payment_status"] = "unpaid"
+    if topic.endswith("/cancelled"):
+        updates.update({"fulfillment_status": "cancelled", "cancellation_status": "cancelled_on_shopify", "cancelled_at": now})
+    elif fulfillment_status:
+        updates["fulfillment_status"] = fulfillment_status
+    local = await db.shopify_orders.find_one({"merchant_id": mid, "shopify_order_id": shopify_id})
+    if local:
+        await db.shopify_orders.update_one({"_id": local["_id"], "merchant_id": mid}, {"$set": updates})
+        return
+    shipping = payload.get("shipping_address") or {}
+    customer_data = payload.get("customer") or {}
+    phone = shipping.get("phone") or customer_data.get("phone") or ""
+    customer = await db.customers.find_one({"merchant_id": mid, "phone": phone}) if phone else None
+    if not customer:
+        inserted = await db.customers.insert_one({
+            "merchant_id": mid, "name": shipping.get("name") or customer_data.get("first_name") or phone,
+            "phone": phone, "preferred_language": None, "total_orders": 0,
+            "delivered_orders": 0, "cancelled_orders": 0, "refused_orders": 0,
+            "failed_deliveries": 0, "created_at": now,
+        })
+        customer = {"_id": inserted.inserted_id}
+    if not fulfillment_status:
+        updates["fulfillment_status"] = "pending"
+    updates.update({
+        "merchant_id": mid, "customer_id": customer["_id"],
+        "order_number": payload.get("order_number") or payload.get("name") or shopify_id,
+        "total": float(payload.get("total_price") or 0), "payment_method": "SHOPIFY",
+        "attribution": "SHOPIFY", "items": [
+            {"title": item.get("title") or item.get("name"), "variant": item.get("variant_title"),
+             "qty": item.get("quantity", 1), "price": float(item.get("price") or 0)}
+            for item in payload.get("line_items", [])
+        ], "created_at": payload.get("created_at") or now,
+    })
+    await db.shopify_orders.insert_one(updates)
+
+
+
 @webhook_router.post("/shopify")
-async def shopify_webhook(request: Request):
+async def shopify_webhook(request: Request, background: BackgroundTasks):
     body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256", "")
     if not shopify_service.verify_webhook(body, hmac_header):
         raise HTTPException(status_code=401, detail="Invalid HMAC")
     topic = request.headers.get("X-Shopify-Topic", "unknown")
+    shop_domain = request.headers.get("X-Shopify-Shop-Domain", "").lower()
     payload = await request.json()
-    await db.webhook_events.insert_one({"source": "shopify", "topic": topic,
-                                        "payload": payload, "received_at": iso_now()})
+    event_key = hashlib.sha256(body).hexdigest()
+    inserted = await db.webhook_events.update_one(
+        {"source": "shopify", "event_key": event_key},
+        {"$setOnInsert": {"source": "shopify", "event_key": event_key, "topic": topic, "shop_domain": shop_domain, "payload": payload, "received_at": iso_now()}},
+        upsert=True,
+    )
+    if inserted.upserted_id:
+        background.add_task(_sync_shopify_order_event, shop_domain, topic, payload)
     return {"received": True}
