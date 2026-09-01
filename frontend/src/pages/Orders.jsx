@@ -19,6 +19,7 @@ export default function Orders() {
                   <th className="font-medium">Items</th>
                   <th className="font-medium">Total</th>
                   <th className="font-medium">Payment</th>
+                  <th className="font-medium">Payment verification</th>
                   <th className="font-medium">Attribution</th>
                   <th className="px-4 font-medium">Status</th>
                 </tr>
@@ -30,6 +31,7 @@ export default function Orders() {
                     <td className="text-muted-foreground">{(o.items || []).map((i) => `${i.title} ×${i.qty}`).join(", ")}</td>
                     <td className="tnum font-medium">{rs(o.total)}</td>
                     <td><Pill tone={o.payment_method}>{o.payment_method}</Pill></td>
+                    <td><Pill tone={o.payment_verification_status || o.payment_status}>{o.payment_verification_label || o.payment_status || "Not verified"}</Pill></td>
                     <td><Pill tone={o.attribution}>{o.attribution}</Pill></td>
                     <td className="px-4"><Pill tone={o.fulfillment_status}>{o.fulfillment_status}</Pill></td>
                   </tr>

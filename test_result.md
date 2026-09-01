@@ -412,3 +412,98 @@
 ##     -message: "Multi-tenant Meta isolation backend testing COMPLETE - ALL TESTS PASSED (18/18, 100%). VERIFIED: (1) Backend startup clean with proper indexes. (2) Auth regression - login and /auth/me work correctly. (3) LLM regression - GET /api/ai/tools returns llm_connected=true, playground functional with real GPT-5.4 responses. (4) GET /api/integrations/status returns tenant-scoped data without exposing secrets (access_token, META_APP_SECRET). (5) GET /api/integrations/whatsapp/embedded-config exposes ONLY public fields (app_id, config_id, graph_version, configured, webhook_configured), META_APP_SECRET NOT exposed. (6) Database indexes verified: merchant_id unique, waba_id unique sparse, phone_number_id unique sparse all present. (7) WABA ownership conflict validation works, code review confirms 409 conflict handling. (8) Webhook verification rejects wrong token with 403. (9) Webhook signature validation rejects invalid signatures with 401. (10) Webhook routing is merchant-scoped per code review. (11) Merchant-scoped queries verified. (12) No live Meta connectivity claimed (credentials not configured). All multi-tenant isolation requirements met. Backend is production-ready for multi-tenant Meta integration."
 ##     -agent: "testing"
 ##     -message: "Frontend verification COMPLETE - ALL TESTS PASSED. WHATSAPP PAGE: (1) Login successful with test credentials. (2) Connection status 'Not connected' with Warning icon (expected). (3) Server configuration warning VISIBLE and ACCURATE - clearly states META_APP_ID, META_APP_SECRET, META_CONFIG_ID, META_VERIFY_TOKEN are required. (4) Embedded Signup button correctly hidden when server not configured. (5) All manual connection fields present and functional. (6) No error messages. (7) Webhook URL displayed correctly. AI PLAYGROUND: (1) LLM status shows 'LLM connected' (green badge). (2) NO EMERGENT_LLM_KEY missing error. (3) Playground functional - test message sent successfully, AI processing confirmed. (4) 41 tools registered. CONSOLE/NETWORK: Only non-critical CDN/RUM tracking errors (401s for cdn-cgi/rum), no application errors. CONCLUSION: The repeated Meta warning is EXPECTED and CORRECT until platform Meta credentials are installed. Both WhatsApp UI and AI playground are working as designed. No action required - system is production-ready for current configuration state."
+## user_feedback:
+##     -agent: "user"
+##     -message: "Change the product name to Chatify AI. Preserve existing UI, styling, functionality, and technical identifiers."
+## frontend:
+##   - task: "Chatify AI visible branding"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/components/Layout.jsx, frontend/src/pages/Login.jsx, frontend/public/index.html"
+##     stuck_count: 0
+##     priority: "medium"
+##     needs_retesting: true
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Updated the sidebar desktop/mobile brand, login brand, HTML title, and meta description to Chatify AI. Internal technical identifiers and integration behavior were not changed. Frontend lint passes and supervisor bundle compiles successfully."
+## test_plan:
+##     current_focus:
+##         - "Verify Chatify AI appears on login and authenticated desktop/mobile shell"
+##         - "Verify HTML document title and no old visible Saylani AI branding remains"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "medium"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Branding-only change completed; browser verification requested before finalizing."
+## user_feature_request:
+##     -agent: "user"
+##     -message: "When a customer wants online payment, send placeholder bank account details and ask for a payment screenshot. Analyze the screenshot and mark the order with a seller-only status such as 'AI marked as paid using screenshot provided by customer'."
+## backend:
+##   - task: "Bank-transfer instructions and screenshot payment verification"
+##     implemented: true
+##     working: true
+##     file: "backend/services/payment_verification.py, backend/services/ai_tools.py, backend/routers/integrations.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Using OpenAI GPT-5.4 vision through the existing EMERGENT_LLM_KEY, added tenant-scoped placeholder bank instructions, an AI tool that tells customers to transfer and send a screenshot, Meta image-media download with a 10 MB limit, persistent tenant receipt storage, conservative structured screenshot analysis, amount/account/confidence checks, seller-only AI-marked-paid or review-required order fields, audit logging, and normal customer acknowledgements without AI/human disclosure. Uncertain/mismatched/unreadable receipts never auto-mark paid."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "PAYMENT SCREENSHOT VERIFICATION FULLY TESTED AND WORKING (17/17 tests passed, 100%). REGRESSION TESTS PASSED: (1) Auth regression - POST /api/auth/login and GET /api/auth/me work correctly with test credentials (techgear008@gmail.com). (2) GET /api/ai/tools returns llm_connected=true with 42 tools, including get_payment_instructions tool (category: payment, implemented: true). (3) GPT-5.4 playground functional - GET/POST /api/ai/playground/playground-main work correctly with real LLM responses. PAYMENT INSTRUCTIONS VERIFIED: (4) bank_details() returns placeholder bank name (Chatify AI Demo Bank), account number (0000000000), IBAN (PK00CHAT0000000000000000), and is_placeholder=true. (5) customer_payment_instructions() returns message with bank details and screenshot instruction without exposing secrets (no META_APP_SECRET, EMERGENT_LLM_KEY, access_token). SCREENSHOT VERIFICATION WITH REAL GPT-5.4 VISION VERIFIED: (6) Matching amount/account receipt (5000 PKR, account 0000000000) correctly marked as 'ai_marked_paid_screenshot' with label 'AI marked as paid using customer screenshot'. (7) Order payment_verification_status updated correctly in database. (8) No secrets in verification result response. (9) Wrong amount receipt (3000 PKR instead of 5000 PKR) correctly marked as 'review_required' with label 'Payment review required'. (10) Conversation needs_attention flag set for seller attention. (11) Unreadable receipt correctly marked as 'review_required'. ORDERS ENDPOINT VERIFIED: (12) GET /api/orders accessible and returns orders without exposing secrets (no access_token, screenshot_bytes). TENANT ISOLATION VERIFIED: (13) Screenshot storage is tenant-scoped (/app/backend/uploads/payment_screenshots/{merchant_id}/). All payment verification functionality working correctly with real GPT-5.4 vision analysis."
+## frontend:
+##   - task: "Seller-visible screenshot payment status"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/Orders.jsx, frontend/src/components/bits.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Added payment verification status to the seller Orders table, including the exact AI-marked-paid label and review-required styling."
+## test_plan:
+##     current_focus:
+##         - "Frontend order payment-status rendering verification (requires user permission)"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+##     agent_communication:
+##     -agent: "main"
+##     -message: "Image testing playbook saved at /app/image_testing.md. Backend testing must run first; use only synthetic screenshots and never real payment or Meta credentials."
+##     -agent: "testing"
+##     -message: "Backend payment screenshot verification testing COMPLETE - ALL TESTS PASSED (17/17, 100%). VERIFIED: (1) Auth regression - login and /auth/me work correctly. (2) GET /api/ai/tools returns llm_connected=true with get_payment_instructions tool registered and implemented. (3) GPT-5.4 playground functional with real LLM responses. (4) Payment instructions return placeholder bank details (Chatify AI Demo Bank, 0000000000, PK00CHAT0000000000000000) without exposing secrets. (5) Screenshot verification with REAL GPT-5.4 VISION: matching amount/account receipt correctly marked as 'AI marked as paid using customer screenshot', wrong amount receipt marked as 'Payment review required' with seller attention flag, unreadable receipt marked as 'Payment review required'. (6) Orders endpoint returns verification labels without exposing secrets. (7) Screenshot storage is tenant-scoped. All payment verification functionality working correctly with real GPT-5.4 vision analysis. Backend is production-ready. Frontend testing requires user permission per protocol."
+## user_feedback:
+##     -agent: "user"
+##     -message: "Sales mode feature toggles (Cross-selling, Upselling, Abandoned-order recovery, Customer memory, Media sending, AI order creation, Human escalation, COD protection) do not look visually correct. Improve the on/off controls."
+## frontend:
+##   - task: "AI settings toggle controls"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/AIAgent.jsx"
+##     stuck_count: 0
+##     priority: "medium"
+##     needs_retesting: false
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Replaced tiny unlabeled buttons with consistent switch controls: larger track/thumb, explicit On/Off state, green active styling, muted off styling, focus ring, role=switch, aria-checked, and improved row spacing. Existing API patch behavior and data-testid values are preserved. JavaScript lint passes."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "AI settings toggle controls FULLY VERIFIED and WORKING (8/8 switches tested, 100%). Logged in with test credentials (techgear008@gmail.com), navigated to AI Agent page, and inspected all eight switches: Cross-selling, Upselling, Abandoned-order recovery, Customer memory, Media sending, AI order creation, Human escalation, and COD protection. VERIFIED: (1) All eight toggles have clearly visible track/thumb (all visible: True). (2) Each toggle has explicit On/Off label text displayed correctly. (3) Consistent spacing across all toggles (padding: 10px 12px, gap: 16px). (4) Active green styling (rgb(33, 196, 93)) vs inactive muted styling (rgb(244, 244, 245)) working correctly. (5) No text concatenation or layout overflow detected (all scrollWidth <= clientWidth). (6) Toggle functionality works: successfully toggled Cross-selling from ON to OFF, visual state changed correctly (background changed from green to muted, label changed from 'On' to 'Off', thumb position changed). (7) State persistence verified: after page reload, Cross-selling remained OFF as expected. (8) Console/network: only non-critical 401 CDN/RUM tracking errors, no application errors. All requirements from user bug report met. No issues found."
+## test_plan:
+##     current_focus:
+##         - "AI settings toggle controls verification complete"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "medium"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Toggle visual bug fixed; frontend browser verification requested against the exact AI Agent settings page."
+##     -agent: "testing"
+##     -message: "AI settings toggle controls testing COMPLETE - ALL TESTS PASSED (8/8 switches, 100%). All eight switches (Cross-selling, Upselling, Abandoned-order recovery, Customer memory, Media sending, AI order creation, Human escalation, COD protection) verified with clearly visible track/thumb, explicit On/Off labels, consistent spacing, active green vs inactive muted styling, no text concatenation or overflow. Toggle functionality and state persistence confirmed. No issues found. Feature is production-ready."

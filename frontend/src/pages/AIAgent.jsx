@@ -48,14 +48,25 @@ export default function AIAgent() {
                   <button key={v} data-testid={`mode-${v}`} onClick={() => patch({ sales_mode: v })} className={`text-xs px-2 py-2.5 rounded-md border transition-colors ${settings.sales_mode === v ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"}`}>{l}</button>
                 ))}
               </div>
-              <div className="border-t border-border/60 pt-4 space-y-3">
+              <div className="border-t border-border/60 pt-4 space-y-2">
                 {TOGGLES.map(([k, label]) => (
-                  <label key={k} className="flex items-center justify-between text-sm">
-                    <span>{label}</span>
-                    <button data-testid={`toggle-${k}`} onClick={() => patch({ [k]: !settings[k] })} className={`h-5 w-9 rounded-full transition-colors relative ${settings[k] ? "bg-[hsl(var(--whatsapp))]" : "bg-muted"}`}>
-                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${settings[k] ? "translate-x-4" : "translate-x-0.5"}`} />
-                    </button>
-                  </label>
+                  <div key={k} className="flex items-center justify-between gap-4 rounded-md border border-border/50 bg-muted/20 px-3 py-2.5">
+                    <span className="text-sm font-medium">{label}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[10px] font-semibold uppercase tracking-wide ${settings[k] ? "text-[hsl(var(--whatsapp))]" : "text-muted-foreground"}`}>{settings[k] ? "On" : "Off"}</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={Boolean(settings[k])}
+                        aria-label={`${label}: ${settings[k] ? "On" : "Off"}`}
+                        data-testid={`toggle-${k}`}
+                        onClick={() => patch({ [k]: !settings[k] })}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${settings[k] ? "border-[hsl(var(--whatsapp))] bg-[hsl(var(--whatsapp))]" : "border-border bg-muted"}`}
+                      >
+                        <span className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200 ease-out ${settings[k] ? "translate-x-[21px]" : "translate-x-0.5"}`} />
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
               <div className="border-t border-border/60 pt-4 flex items-center justify-between text-sm">

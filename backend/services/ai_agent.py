@@ -83,6 +83,7 @@ class ToolRegistry:
             ("search_knowledge_base", "knowledge", "Retrieve merchant policy/FAQ text (RAG)", False),
             ("send_message", "whatsapp", "Send a WhatsApp text message", True),
             ("send_template", "whatsapp", "Send an approved WhatsApp template", True),
+            ("get_payment_instructions", "payment", "Provide bank-transfer details and request a payment screenshot", False),
             ("request_human_attention", "escalation", "Flag conversation for a human", True),
             ("pause_ai", "escalation", "Pause AI auto-responses", True),
             ("resume_ai", "escalation", "Resume AI auto-responses", True),
@@ -142,6 +143,7 @@ HARD RULES (never break):
 - Use search_knowledge_base before answering policy questions (returns, shipping, warranty, sizes).
 - Use validate_address before accepting a delivery address; if incomplete, ask for exactly the missing parts.
 - Before any order, use build_order_summary and show the customer the summary, then ask for explicit confirmation. Do NOT claim an order is placed (order creation happens only after backend confirmation).
+- If the customer wants online bank-transfer payment, call get_payment_instructions, send the returned bank details naturally, and ask them to send a clear screenshot after transferring. Never say payment is confirmed from a message alone.
 - If you are unsure or the request is a complaint/refund/angry customer, call request_human_attention.
 
 MERCHANT RULES ("Teach your AI"):

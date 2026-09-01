@@ -265,6 +265,7 @@ async def _process_whatsapp_inbound(payload: dict):
     when the conversation is AI_ACTIVE and both WhatsApp + LLM are connected.
     """
     from services.ai_agent import ai_agent, LLMNotConfigured
+    from services.payment_verification import verify_payment_screenshot
     try:
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
@@ -286,9 +287,12 @@ async def _process_whatsapp_inbound(payload: dict):
                             {"$set": {"status": status_event.get("status", "unknown"), "status_errors": status_event.get("errors"), "status_timestamp": status_event.get("timestamp")}})
                 for msg in value.get("messages", []):
                     from_phone = msg.get("from")
+                    message_type = msg.get("type")
                     text = (msg.get("text") or {}).get("body", "")
-                    if not text:
+                    image_payload = msg.get("image") if message_type == "image" else None
+                    if not text and not image_payload:
                         continue
+                    message_body = text or "[Payment screenshot received]"
                     customer = await db.customers.find_one({"merchant_id": mid, "phone": from_phone})
                     if not customer:
                         cid_ins = await db.customers.insert_one({
@@ -308,15 +312,38 @@ async def _process_whatsapp_inbound(payload: dict):
                             "mode": "AI_ACTIVE", "needs_attention": False, "ai_resolved": False,
                             "low_confidence": False, "had_human_takeover": False,
                             "conversation_value": 0, "intent": "OTHER",
-                            "last_message": text, "last_message_at": iso_now(), "created_at": iso_now()})
+                            "last_message": message_body, "last_message_at": iso_now(), "created_at": iso_now()})
                         conv = await db.conversations.find_one({"_id": conv_ins.inserted_id})
                     await db.messages.insert_one({
                         "conversation_id": conv["_id"], "merchant_id": mid, "direction": "inbound",
-                        "sender": "customer", "body": text, "status": "received", "created_at": iso_now()})
+                        "sender": "customer", "body": message_body, "status": "received", "message_type": message_type,
+                        "whatsapp_media_id": (image_payload or {}).get("id"), "created_at": iso_now()})
                     await db.conversations.update_one({"_id": conv["_id"]},
-                        {"$set": {"last_message": text, "last_message_at": iso_now()}})
+                        {"$set": {"last_message": message_body, "last_message_at": iso_now()}})
 
                     usage = await record_unique_chat(str(mid), from_phone)
+                    if image_payload:
+                        if conv.get("mode") != "AI_ACTIVE" or not usage["ai_allowed"]:
+                            await db.conversations.update_one(
+                                {"_id": conv["_id"], "merchant_id": mid},
+                                {"$set": {"needs_attention": True, "payment_review_status": "review_required"}})
+                            continue
+                        try:
+                            image_bytes, mime_type = await whatsapp_service.download_media(conn, image_payload.get("id"))
+                            payment_result = await verify_payment_screenshot(
+                                str(mid), str(conv["_id"]), image_bytes, mime_type, image_payload.get("id"))
+                            customer_reply = payment_result.get("customer_message", "Thanks, we received the payment screenshot.")
+                            send_result = await whatsapp_service.send_text(conn, from_phone, customer_reply)
+                            await db.messages.insert_one({
+                                "conversation_id": conv["_id"], "merchant_id": mid, "direction": "outbound",
+                                "sender": "ai", "body": customer_reply, "status": "sent",
+                                "whatsapp_message_id": ((send_result.get("messages") or [{}])[0]).get("id"),
+                                "payment_verification": payment_result.get("decision"), "created_at": iso_now()})
+                        except Exception as exc:
+                            await db.conversations.update_one(
+                                {"_id": conv["_id"], "merchant_id": mid},
+                                {"$set": {"needs_attention": True, "payment_review_status": "review_required", "payment_review_error": str(exc)[:240]}})
+                        continue
                     if conv.get("mode") != "AI_ACTIVE" or not ai_agent.llm_connected:
                         continue
                     if not usage["ai_allowed"]:

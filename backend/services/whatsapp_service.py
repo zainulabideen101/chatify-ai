@@ -8,6 +8,9 @@ import os
 import hmac
 import hashlib
 
+import httpx
+
+from services.crypto import decrypt_secret
 
 class WhatsAppNotConfigured(Exception):
     pass
@@ -62,6 +65,32 @@ class WhatsAppService:
         if caption and media_type in ("image", "video"):
             payload[media_type]["caption"] = caption
         return await self._graph_send(connection, payload)
+
+    async def download_media(self, connection: dict, media_id: str) -> tuple[bytes, str]:
+        """Download an inbound WhatsApp image with the tenant's encrypted token."""
+        if not connection or not connection.get("access_token_enc"):
+            raise WhatsAppNotConfigured("No WhatsApp Business Account connected for this merchant.")
+        token = decrypt_secret(connection["access_token_enc"])
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=30) as client:
+            metadata_response = await client.get(
+                f"https://graph.facebook.com/{self.GRAPH_VERSION}/{media_id}", headers=headers)
+            metadata_response.raise_for_status()
+            metadata = metadata_response.json()
+            media_url = metadata.get("url")
+            mime_type = metadata.get("mime_type", "")
+            if not media_url:
+                raise ValueError("Meta did not return a media download URL")
+            async with client.stream("GET", media_url, headers=headers) as response:
+                response.raise_for_status()
+                chunks = []
+                total = 0
+                async for chunk in response.aiter_bytes(1024 * 1024):
+                    total += len(chunk)
+                    if total > 10 * 1024 * 1024:
+                        raise ValueError("Payment screenshot exceeds the 10 MB limit")
+                    chunks.append(chunk)
+        return b"".join(chunks), mime_type
 
     async def send_template(self, connection: dict, to: str, template_name: str,
                             language: str, components: list = None) -> dict:

@@ -39,7 +39,7 @@ export function Layout({ children }) {
           <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
             <Storefront weight="fill" className="text-primary-foreground" size={16} />
           </div>
-          <span className="font-display font-semibold text-[15px] tracking-tight">Saylani AI</span>
+          <span className="font-display font-semibold text-[15px] tracking-tight">Chatify AI</span>
           <button className="ml-auto lg:hidden text-muted-foreground" onClick={() => setOpen(false)}><X size={18} /></button>
         </div>
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
@@ -92,7 +92,7 @@ export function Layout({ children }) {
         {/* Mobile top bar */}
         <div className="h-14 lg:hidden flex items-center gap-3 px-4 border-b border-border/60 bg-white sticky top-0 z-20">
           <button data-testid="mobile-menu-btn" onClick={() => setOpen(true)} className="text-foreground"><List size={22} /></button>
-          <span className="font-display font-semibold text-sm">Saylani AI</span>
+          <span className="font-display font-semibold text-sm">Chatify AI</span>
         </div>
         {children}
       </main>

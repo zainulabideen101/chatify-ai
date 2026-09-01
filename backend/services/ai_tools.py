@@ -61,6 +61,10 @@ TOOL_SCHEMAS = [
             "city": {"type": "string"}, "payment_method": {"type": "string"}
         }, "required": ["items"]}}},
     {"type": "function", "function": {
+        "name": "get_payment_instructions",
+        "description": "Provide the merchant's current bank-transfer details and tell the customer to send a clear payment screenshot after transferring. Use when the customer wants to pay online by bank transfer.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
         "name": "request_human_attention",
         "description": "Flag this conversation for a human agent (refund dispute, angry customer, unknown info, explicit request).",
         "parameters": {"type": "object", "properties": {"reason": {"type": "string"}}, "required": ["reason"]}}},
@@ -177,6 +181,10 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
         return {"items": line_items, "subtotal": subtotal, "shipping": shipping,
                 "total": subtotal + shipping, "currency": "PKR",
                 "payment_method": args.get("payment_method", "COD")}
+
+    if name == "get_payment_instructions":
+        from services.payment_verification import customer_payment_instructions
+        return customer_payment_instructions()
 
     if name == "request_human_attention":
         if ctx.get("conversation_id"):

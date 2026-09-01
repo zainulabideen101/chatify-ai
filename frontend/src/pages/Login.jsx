@@ -39,7 +39,7 @@ export default function Login() {
           <div className="h-8 w-8 rounded-md bg-primary-foreground flex items-center justify-center">
             <Storefront weight="fill" className="text-primary" size={18} />
           </div>
-          <span className="font-display font-semibold text-lg">Saylani AI</span>
+          <span className="font-display font-semibold text-lg">Chatify AI</span>
         </div>
         <div className="relative z-10 space-y-4">
           <div className="inline-flex items-center gap-2 text-xs bg-primary-foreground/10 px-3 py-1.5 rounded-full">
