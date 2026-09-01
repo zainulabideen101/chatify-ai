@@ -532,11 +532,14 @@
 ##     file: "frontend/src/pages/Orders.jsx"
 ##     stuck_count: 0
 ##     priority: "high"
-##     needs_retesting: true
+##     needs_retesting: false
 ##     status_history:
 ##         -working: true
 ##         -agent: "main"
 ##         -comment: "Expanded Orders with a payment review queue, clickable order details, authenticated screenshot preview, extracted amount/reference/date/confidence/reasons, and Approve & notify / Reject & notify actions. Frontend lint and supervisor compilation pass."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "Payment review queue and receipt evidence UI FULLY VERIFIED. Logged in with test credentials (techgear008@gmail.com), navigated to Orders page, clicked payment review queue item. DESKTOP LAYOUT (1920x800): Orders table (x=289, width=1188) and detail panel (x=1498, width=390) are side-by-side with 21px gap, both fully visible in viewport, vertically aligned (y difference: 1.0px). Panel header 'Order #TEST1788284780 payment evidence' found, receipt evidence image displayed, 5 detail rows present (extracted amount, order total, reference, transaction date, confidence, verification reasons), Approve & notify and Reject & notify buttons visible for review_required order. MOBILE LAYOUT (390x844): Detail panel (width=326px) fits within viewport, stacks below table (panel y=1518.75 > table y=614.75), no horizontal overflow (scrollWidth=390, clientWidth=390). Console: only non-critical 401 CDN/RUM tracking errors, no application errors. All requirements met."
 ## test_plan:
 ##     current_focus:
 ##         - "Frontend Orders queue, evidence preview, decision buttons, status rendering, and existing order regression"
@@ -548,3 +551,32 @@
 ##     -message: "Payment review and receipt evidence implementation is ready for backend testing first. No payment success, WhatsApp notification, or screenshot content is mocked."
 ##     -agent: "testing"
 ##     -message: "Backend payment review queue and receipt evidence testing COMPLETE - ALL TESTS PASSED (21/21, 100%). VERIFIED: (1) Auth regression - login and /auth/me work correctly. (2) GET /api/ai/tools returns llm_connected=true with 42 tools. (3) GET /api/payment-review returns only authenticated tenant's review_required orders. (4) GET /api/orders and GET /api/orders/{id} do NOT expose payment_screenshot_path or screenshot bytes. (5) GET /api/orders/{id}/payment-evidence returns tenant-owned synthetic JPEG (14113 bytes) only to owning tenant, rejects another tenant with 404. (6) POST /api/orders/{id}/payment-review with approve: payment_status='paid', payment_verification_status='human_approved_screenshot', label='Human approved payment screenshot', audit fields present, notification='not_sent' (safe when WhatsApp not configured). (7) POST /api/orders/{id}/payment-review with reject: payment_status='unpaid', payment_verification_status='payment_rejected', label='Payment screenshot rejected', notification non-fatal. (8) Validation working: invalid decision rejected with 422, non-existent order rejected with 404, double review prevented with 400. (9) Backend startup clean with no index errors. All payment review functionality working correctly with proper tenant isolation, audit logging, and safe notification handling. No real funds, real Meta credentials, or mocked provider responses used. Backend is production-ready."
+## user_feedback:
+##     -agent: "user"
+##     -message: "The Approve & notify / Reject & notify review card appeared below the entire Orders table. User selected a right-side review panel beside the orders table so payment review stays on the same screen."
+## frontend:
+##   - task: "Same-screen payment review panel"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/Orders.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Moved PaymentOrderDetail into a responsive two-column layout: sticky right-side review panel on desktop and stacked full-width panel on smaller screens. Orders table remains visible beside the screenshot and approve/reject controls. Frontend lint and webpack compilation pass."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "Same-screen payment review panel layout bug FIXED and VERIFIED. Logged in with test credentials (techgear008@gmail.com), navigated to Orders page, clicked payment review queue item. DESKTOP LAYOUT (1920x800) VERIFIED: PaymentOrderDetail panel rendered in right-side column beside orders table (NOT below). Bounding box measurements confirm: Orders table ends at x=1477, detail panel starts at x=1498 (21px gap), both fully visible in 1920px viewport, vertically aligned (y difference: 1.0px). Panel contains: header 'Order #TEST1788284780 payment evidence', receipt evidence image, extracted amount (Rs. 4,000), order total (Rs. 4,000), reference (REF123456), transaction date (2026-01-15), confidence (75%), verification reasons (Amount matches, Account visible, Date recent), Approve & notify and Reject & notify buttons visible for review_required order. MOBILE LAYOUT (390x844) VERIFIED: Panel stacks cleanly below table (panel y=1518.75 > table y=614.75), panel width (326px) fits within viewport (390px), no horizontal overflow (scrollWidth=390, clientWidth=390). Console: only non-critical 401 CDN/RUM tracking errors, no application errors. Layout bug completely resolved - panel is beside table on desktop, stacks cleanly on mobile."
+## test_plan:
+##     current_focus:
+##         - "Same-screen payment review panel layout verification complete"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+##     agent_communication:
+##     -agent: "main"
+##     -message: "Same-screen right-side panel change completed; frontend browser verification is required for the reported layout bug."
+##     -agent: "testing"
+##     -message: "Same-screen payment review panel testing COMPLETE - ALL TESTS PASSED. LAYOUT BUG FIXED: Desktop (1920x800) - PaymentOrderDetail panel correctly rendered in right-side column beside orders table with 21px gap, both fully visible in viewport, vertically aligned. Panel contains all required elements: header, receipt evidence image, extracted amount/reference/date/confidence/reasons, Approve & notify and Reject & notify buttons for review_required orders. Mobile (390x844) - Panel stacks cleanly below table without horizontal overflow. Console: only non-critical CDN/RUM tracking errors. The reported bug where the review card appeared below the entire Orders table is completely resolved. Panel now displays beside the table on desktop as requested."

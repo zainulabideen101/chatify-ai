@@ -24,17 +24,21 @@ export default function Orders() {
           </div>
         )}
 
-        {loading ? "Loading…" : !data?.length ? (
-          <EmptyState title="No orders yet" hint="Orders created by the AI on WhatsApp and synced from Shopify will appear here." />
-        ) : (
-          <div className="border border-border/60 rounded-lg bg-card overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="text-[11px] uppercase text-muted-foreground text-left bg-muted/40"><tr><th className="px-4 py-2.5 font-medium">Order</th><th className="font-medium">Items</th><th className="font-medium">Total</th><th className="font-medium">Payment</th><th className="font-medium">Payment verification</th><th className="font-medium">Attribution</th><th className="px-4 font-medium">Status</th></tr></thead>
-              <tbody className="divide-y divide-border/60">{data.map((order) => <tr key={order.id} data-testid={`order-${order.id}`} onClick={() => setSelectedId(order.id)} className={`hover:bg-muted/40 cursor-pointer ${selectedId === order.id ? "bg-muted/50" : ""}`}><td className="px-4 py-3 font-medium tnum">#{order.order_number}</td><td className="text-muted-foreground">{(order.items || []).map((item) => `${item.title} ×${item.qty}`).join(", ")}</td><td className="tnum font-medium">{rs(order.total)}</td><td><Pill tone={order.payment_method}>{order.payment_method}</Pill></td><td><Pill tone={order.payment_verification_status || order.payment_status}>{order.payment_verification_label || order.payment_status || "Not verified"}</Pill></td><td><Pill tone={order.attribution}>{order.attribution}</Pill></td><td className="px-4"><Pill tone={order.fulfillment_status}>{order.fulfillment_status}</Pill></td></tr>)}</tbody>
-            </table>
+        <div className={selected ? "xl:grid xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start gap-5" : ""}>
+          <div>
+            {loading ? "Loading…" : !data?.length ? (
+              <EmptyState title="No orders yet" hint="Orders created by the AI on WhatsApp and synced from Shopify will appear here." />
+            ) : (
+              <div className="border border-border/60 rounded-lg bg-card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="text-[11px] uppercase text-muted-foreground text-left bg-muted/40"><tr><th className="px-4 py-2.5 font-medium">Order</th><th className="font-medium">Items</th><th className="font-medium">Total</th><th className="font-medium">Payment</th><th className="font-medium">Payment verification</th><th className="font-medium">Attribution</th><th className="px-4 font-medium">Status</th></tr></thead>
+                  <tbody className="divide-y divide-border/60">{data.map((order) => <tr key={order.id} data-testid={`order-${order.id}`} onClick={() => setSelectedId(order.id)} className={`hover:bg-muted/40 cursor-pointer ${selectedId === order.id ? "bg-muted/50" : ""}`}><td className="px-4 py-3 font-medium tnum">#{order.order_number}</td><td className="text-muted-foreground">{(order.items || []).map((item) => `${item.title} ×${item.qty}`).join(", ")}</td><td className="tnum font-medium">{rs(order.total)}</td><td><Pill tone={order.payment_method}>{order.payment_method}</Pill></td><td><Pill tone={order.payment_verification_status || order.payment_status}>{order.payment_verification_label || order.payment_status || "Not verified"}</Pill></td><td><Pill tone={order.attribution}>{order.attribution}</Pill></td><td className="px-4"><Pill tone={order.fulfillment_status}>{order.fulfillment_status}</Pill></td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-        {selected && <PaymentOrderDetail order={selected} onClose={() => setSelectedId(null)} onDone={() => { refresh(); setSelectedId(null); }} />}
+          {selected && <div className="mt-5 xl:mt-0 xl:sticky xl:top-20"><PaymentOrderDetail order={selected} onClose={() => setSelectedId(null)} onDone={() => { refresh(); setSelectedId(null); }} /></div>}
+        </div>
       </Section>
     </>
   );
