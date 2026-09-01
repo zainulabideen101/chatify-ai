@@ -19,6 +19,7 @@ const NAV = [
   { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
   { to: "/analytics", label: "Analytics", icon: ChartLineUp },
   { to: "/settings", label: "Settings", icon: Gear },
+  { to: "/billing", label: "Plans & billing", icon: FileText },
 ];
 
 export function Layout({ children }) {

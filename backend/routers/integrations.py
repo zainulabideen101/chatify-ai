@@ -10,6 +10,7 @@ from services.shopify_service import shopify_service, ShopifyNotConfigured
 from services.whatsapp_service import whatsapp_service
 from services.crypto import encrypt_secret
 from audit import log_action
+from services.billing import record_unique_chat
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -227,7 +228,13 @@ async def _process_whatsapp_inbound(payload: dict):
                     await db.conversations.update_one({"_id": conv["_id"]},
                         {"$set": {"last_message": text, "last_message_at": iso_now()}})
 
+                    usage = await record_unique_chat(str(mid), from_phone)
                     if conv.get("mode") != "AI_ACTIVE" or not ai_agent.llm_connected:
+                        continue
+                    if not usage["ai_allowed"]:
+                        await db.conversations.update_one(
+                            {"_id": conv["_id"], "merchant_id": mid},
+                            {"$set": {"needs_attention": True, "ai_paused_reason": "daily_chat_limit"}})
                         continue
                     prior = await db.messages.find({"conversation_id": conv["_id"]}).sort("created_at", 1).to_list(50)
                     history = [{"role": "user" if m["direction"] == "inbound" else "assistant",

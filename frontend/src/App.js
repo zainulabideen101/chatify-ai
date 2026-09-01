@@ -16,6 +16,7 @@ import Templates from "@/pages/Templates";
 import KnowledgeBase from "@/pages/KnowledgeBase";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
+import Billing from "@/pages/Billing";
 
 const P = (el) => <ProtectedRoute>{el}</ProtectedRoute>;
 
@@ -39,6 +40,7 @@ function App() {
             <Route path="/knowledge" element={P(<KnowledgeBase />)} />
             <Route path="/analytics" element={P(<Analytics />)} />
             <Route path="/settings" element={P(<Settings />)} />
+            <Route path="/billing" element={P(<Billing />)} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

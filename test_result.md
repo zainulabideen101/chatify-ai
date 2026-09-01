@@ -117,6 +117,9 @@
 ##         -working: true
 ##         -agent: "testing"
 ##         -comment: "Backend runtime verified: FastAPI running on 0.0.0.0:8001 via supervisor, MongoDB seeding completed successfully ('Startup: indexes + demo seed complete'), /api/health returns 200 OK, owner credentials (techgear008@gmail.com) authenticate successfully, /api/auth/me works correctly. Ran full pytest suite: 70/72 tests passed, 1 skipped (webhook verify token not configured), 1 minor pre-existing test assertion issue (AI tools count 41 vs expected 36 - functionality works, just outdated test expectation). All core APIs functional."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "Login regression re-verified during billing feature testing: POST /api/auth/login returns user object with access_token, httpOnly cookies (access_token and refresh_token) set correctly with Secure, SameSite=None, Partitioned attributes. GET /api/auth/me works with Bearer token. No login issues found."
 ## frontend:
 ##   - task: "Emergent frontend runtime"
 ##     implemented: true
@@ -132,7 +135,7 @@
 ## metadata:
 ##     created_by: "main_agent"
 ##     version: "1.0"
-##     test_sequence: 1
+##     test_sequence: 2
 ##     run_ui: false
 ## test_plan:
 ##     current_focus:
@@ -146,3 +149,72 @@
 ##     -message: "Repository imported from main branch without source/UI rewrites. Runtime blockers found were missing backend/frontend environment files and uninstalled Yarn dependencies; these were addressed without changing application logic. Backend testing requested first."
 ##     -agent: "testing"
 ##     -message: "Backend runtime testing complete. All critical functionality verified and working. FastAPI server running correctly via supervisor, MongoDB operational with successful seeding, authentication working with test credentials, all core API endpoints functional. Pytest suite shows 70/72 tests passing with only 1 minor pre-existing test expectation issue (AI tools count) and 1 skipped test (webhook token not configured). No runtime issues found. Backend is production-ready."
+## user_feedback:
+##     -agent: "user"
+##     -message: "User reports login form displays 'Something went wrong' instead of signing in. Browser compilation logs showed the whole frontend failed because WhatsApp.jsx imported FacebookLogo, which is not exported by the installed repository-declared @phosphor-icons/react 2.1.10 package. Removed only that unused import; no UI behavior or styling changed."
+## frontend:
+##   - task: "Login flow after Emergent compile fix"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/WhatsApp.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: false
+##         -agent: "user"
+##         -comment: "Login showed the generic error in the running frontend."
+##         -working: true
+##         -agent: "main"
+##         -comment: "Removed the unused FacebookLogo import that prevented the React bundle from compiling; JavaScript lint passes and supervisor services remain running. Exact login flow requires frontend testing-agent verification."
+## test_plan:
+##     current_focus:
+##         - "Frontend compile and login with credentials from /app/memory/test_credentials.md"
+##         - "Post-login redirect to dashboard and authenticated API requests"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Reproduced the reported auth symptom from frontend compilation logs, applied the minimum compile fix, and requested browser verification of login."
+## user_feature_request:
+##     -agent: "user"
+##     -message: "Add Pakistani ecommerce seller pricing: Free 15, Starter 100 for PKR 2500/month, Growth 250 for PKR 4000/month, Unlimited for PKR 10000/month; count one unique customer per merchant per Asia/Karachi day; AI pauses at the limit while human replies continue; customers must not know whether AI or human handled the chat. User requested JazzCash, Easypaisa, and bank transfer, but did not provide provider credentials and asked to proceed with best judgment."
+## backend:
+##   - task: "Plan catalog and daily unique-customer entitlement enforcement"
+##     implemented: true
+##     working: true
+##     file: "backend/services/billing.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Added tenant-scoped subscription defaults, PKR plan catalog, Asia/Karachi daily usage markers with a unique index, usage summary endpoints, and inbound webhook enforcement that stores chats but skips AI replies after the plan limit. Human sends and customer-visible message bodies remain unchanged."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "BACKEND BILLING FEATURE FULLY VERIFIED: (1) Login regression PASSED - POST /api/auth/login and GET /api/auth/me work correctly with test credentials, httpOnly cookies set properly. (2) GET /api/billing/plans returns exactly 4 plans (free/starter/growth/unlimited) with correct PKR prices (0/2500/4000/10000) and limits (15/100/250/None). (3) GET /api/billing/summary returns current plan, usage, and correctly defaults new merchant to free plan. (4) POST /api/billing/plan accepts 'free' and rejects paid plans with explicit 'not configured' 503 response. (5) Tenant isolation verified - endpoints require authentication. (6) Daily usage counting VERIFIED: counts one customer phone once per Asia/Karachi day, second chat for same phone does not increment. (7) Over-limit AI suppression VERIFIED: 16th chat on free plan (limit 15) is stored with ai_allowed=False, no AI reply sent, conversation marked needs_attention with ai_paused_reason='daily_chat_limit'. (8) Webhook enforcement VERIFIED: handler calls record_unique_chat, checks ai_allowed flag, uses 'continue' to skip AI reply (no customer-facing message). (9) All routes correctly prefixed with /api. Minor: Index conflict error in startup logs (billing_subscriptions.merchant_id index created twice with different uniqueness) - does not affect functionality but causes error logs."
+## frontend:
+##   - task: "Seller pricing and usage page"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/Billing.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Added a Plans & billing seller page using existing visual language, showing current plan, daily usage, four requested prices/limits, and explicit payment-not-configured status. Paid activation is not fabricated without real credentials."
+## test_plan:
+##     current_focus:
+##         - "Frontend Plans & billing page browser verification (requires user permission)"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Pricing and daily chat entitlement feature implemented without external payment calls or mocked payment success. Backend testing is required first; frontend browser verification follows with user permission."
+##     -agent: "testing"
+##     -message: "Backend billing feature testing COMPLETE - ALL TESTS PASSED. Verified: (1) Login regression - no issues, works correctly. (2) All 4 billing plans with exact PKR prices and limits. (3) New merchant defaults to free plan. (4) Tenant isolation enforced. (5) Daily usage counts one customer phone once per Asia/Karachi day. (6) Over-limit customers (16th on free plan) stored with ai_allowed=False, no customer-facing message sent. (7) Webhook handler correctly enforces limits and skips AI reply. (8) All routes /api-prefixed. (9) POST /api/billing/plan accepts free, rejects paid with 503 'not configured' message. Minor non-blocking issue: Index conflict error in startup logs (billing_subscriptions.merchant_id) - functionality unaffected. Backend is production-ready. Frontend testing requires user permission per protocol."

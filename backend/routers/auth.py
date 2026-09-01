@@ -9,6 +9,7 @@ from security import (hash_password, verify_password, create_access_token,
 from models import RegisterRequest, LoginRequest, DefaultAISettings
 from deps import get_current_user
 from audit import log_action
+from services.billing import ensure_subscription
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -67,6 +68,7 @@ async def register(payload: RegisterRequest, response: Response):
     user["merchant_id"] = merchant_id
 
     await db.ai_settings.insert_one({"merchant_id": merchant_id, **DefaultAISettings.make()})
+    await ensure_subscription(merchant_id)
     await log_action(str(merchant_id), "merchant_registered", actor="merchant",
                      detail={"store_name": payload.store_name})
     return await _issue(response, user)

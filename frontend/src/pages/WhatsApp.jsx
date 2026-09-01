@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/Layout";
 import { Section, useFetch } from "@/components/bits";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { WhatsappLogo, CheckCircle, Warning, FacebookLogo } from "@phosphor-icons/react";
+import { WhatsappLogo, CheckCircle, Warning } from "@phosphor-icons/react";
 
 export default function WhatsApp() {
   const { data, loading, reload } = useFetch("/integrations/status");

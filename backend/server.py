@@ -15,8 +15,9 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from database import client
-from routers import auth, merchant, integrations, commerce, inbox, analytics, ai, cron
+from routers import auth, merchant, integrations, commerce, inbox, analytics, ai, cron, billing
 import seed
+from services.billing import ensure_all_subscriptions
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -39,6 +40,7 @@ app.include_router(inbox.router)
 app.include_router(analytics.router)
 app.include_router(ai.router)
 app.include_router(cron.router)
+app.include_router(billing.router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +56,7 @@ async def on_startup():
     try:
         await seed.ensure_indexes()
         await seed.seed_owner_and_demo()
+        await ensure_all_subscriptions()
         await seed.write_test_credentials()
         logger.info("Startup: indexes + demo seed complete")
     except Exception as e:

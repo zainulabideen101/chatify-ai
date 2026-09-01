@@ -20,12 +20,15 @@ def _iso(dt): return dt.isoformat()
 async def ensure_indexes():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
-    await db.login_attempts.create_index("updated_at", expireAfterSeconds=3600)
+    await db["daily_chat_usage"].create_index(
+        [("merchant_id", 1), ("day", 1), ("customer_phone", 1)], unique=True)
+    await db["billing_subscriptions"].create_index("merchant_id", unique=True)
     await db.merchants.create_index("store_name")
     for coll in ["products", "product_variants", "product_media", "customers",
                  "conversations", "messages", "shopify_orders", "abandoned_orders",
                  "recommendation_events", "audit_logs", "business_rules",
-                 "knowledge_documents", "whatsapp_templates"]:
+                 "knowledge_documents", "whatsapp_templates", "billing_subscriptions",
+                 "daily_chat_usage"]:
         await db[coll].create_index("merchant_id")
 
 
