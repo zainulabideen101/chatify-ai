@@ -1,7 +1,7 @@
 """Integration connection architecture: Shopify OAuth, WhatsApp/Meta connect, webhooks."""
 import secrets
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, BackgroundTasks
 
 from database import db, serialize
 from deps import get_tenant_id
@@ -91,7 +91,8 @@ async def shopify_sync(tid: str = Depends(get_tenant_id)):
     if not conn:
         raise HTTPException(status_code=400, detail="Connect a Shopify store first")
     try:
-        result = await shopify_service.sync_catalog(conn["shop_domain"], conn.get("access_token_enc"))
+        result = await shopify_service.sync_catalog(conn["shop_domain"], conn.get("access_token_enc"), tid)
+        await log_action(tid, "shopify_catalog_synced", actor="merchant", detail=result)
         return result
     except ShopifyNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -121,6 +122,52 @@ async def whatsapp_disconnect(tid: str = Depends(get_tenant_id)):
     return {"ok": True}
 
 
+@router.get("/whatsapp/embedded-config")
+async def whatsapp_embedded_config(tid: str = Depends(get_tenant_id)):
+    """Config the frontend needs to launch Meta Embedded Signup (FB.login)."""
+    import os
+    return {
+        "app_id": os.environ.get("META_APP_ID", ""),
+        "config_id": os.environ.get("META_CONFIG_ID", ""),
+        "graph_version": whatsapp_service.GRAPH_VERSION,
+        "configured": whatsapp_service.app_configured and bool(os.environ.get("META_CONFIG_ID")),
+    }
+
+
+@router.post("/whatsapp/embedded-exchange")
+async def whatsapp_embedded_exchange(payload: dict, tid: str = Depends(get_tenant_id)):
+    """Exchange the Embedded Signup authorization code for a business token and
+    register the merchant's WABA/phone. Requires META_APP_ID/SECRET on the server.
+    """
+    import os
+    import requests
+    if not whatsapp_service.app_configured:
+        raise HTTPException(status_code=503, detail="Meta App credentials (META_APP_ID/META_APP_SECRET) not configured on server.")
+    code = payload.get("code")
+    waba_id = payload.get("waba_id")
+    phone_number_id = payload.get("phone_number_id")
+    if not code or not waba_id or not phone_number_id:
+        raise HTTPException(status_code=400, detail="code, waba_id and phone_number_id are required")
+    gv = whatsapp_service.GRAPH_VERSION
+    resp = requests.get(
+        f"https://graph.facebook.com/{gv}/oauth/access_token",
+        params={"client_id": os.environ["META_APP_ID"],
+                "client_secret": os.environ["META_APP_SECRET"], "code": code},
+        timeout=20)
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
+    display = payload.get("display_phone_number", "")
+    await db.whatsapp_connections.update_one(
+        {"merchant_id": ObjectId(tid)},
+        {"$set": {"merchant_id": ObjectId(tid), "waba_id": waba_id,
+                  "phone_number_id": phone_number_id, "display_phone_number": display,
+                  "access_token_enc": encrypt_secret(token), "connected_at": iso_now(),
+                  "onboarding": "embedded_signup"}},
+        upsert=True)
+    await log_action(tid, "whatsapp_connected_embedded", actor="merchant", detail={"waba_id": waba_id})
+    return {"ok": True}
+
+
 # ---------- Public webhooks (no auth) ----------
 webhook_router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
@@ -135,14 +182,87 @@ async def whatsapp_verify(request: Request):
     return Response(content=challenge, media_type="text/plain")
 
 
+async def _process_whatsapp_inbound(payload: dict):
+    """Parse a WhatsApp Cloud API webhook, store the message, and let the AI reply
+    when the conversation is AI_ACTIVE and both WhatsApp + LLM are connected.
+    """
+    from services.ai_agent import ai_agent, LLMNotConfigured
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                phone_number_id = (value.get("metadata") or {}).get("phone_number_id")
+                if not phone_number_id:
+                    continue
+                conn = await db.whatsapp_connections.find_one({"phone_number_id": phone_number_id})
+                if not conn:
+                    continue
+                mid = conn["merchant_id"]
+                for msg in value.get("messages", []):
+                    from_phone = msg.get("from")
+                    text = (msg.get("text") or {}).get("body", "")
+                    if not text:
+                        continue
+                    customer = await db.customers.find_one({"merchant_id": mid, "phone": from_phone})
+                    if not customer:
+                        cid_ins = await db.customers.insert_one({
+                            "merchant_id": mid, "name": from_phone, "phone": from_phone,
+                            "preferred_language": None, "total_orders": 0, "delivered_orders": 0,
+                            "cancelled_orders": 0, "refused_orders": 0, "failed_deliveries": 0,
+                            "created_at": iso_now()})
+                        customer = {"_id": cid_ins.inserted_id, "name": from_phone}
+                    conv = await db.conversations.find_one({"merchant_id": mid, "customer_phone": from_phone})
+                    if not conv:
+                        conv_ins = await db.conversations.insert_one({
+                            "merchant_id": mid, "customer_id": customer["_id"],
+                            "customer_name": customer.get("name"), "customer_phone": from_phone,
+                            "mode": "AI_ACTIVE", "needs_attention": False, "ai_resolved": False,
+                            "low_confidence": False, "had_human_takeover": False,
+                            "conversation_value": 0, "intent": "OTHER",
+                            "last_message": text, "last_message_at": iso_now(), "created_at": iso_now()})
+                        conv = await db.conversations.find_one({"_id": conv_ins.inserted_id})
+                    await db.messages.insert_one({
+                        "conversation_id": conv["_id"], "merchant_id": mid, "direction": "inbound",
+                        "sender": "customer", "body": text, "status": "received", "created_at": iso_now()})
+                    await db.conversations.update_one({"_id": conv["_id"]},
+                        {"$set": {"last_message": text, "last_message_at": iso_now()}})
+
+                    if conv.get("mode") != "AI_ACTIVE" or not ai_agent.llm_connected:
+                        continue
+                    prior = await db.messages.find({"conversation_id": conv["_id"]}).sort("created_at", 1).to_list(50)
+                    history = [{"role": "user" if m["direction"] == "inbound" else "assistant",
+                                "content": m["body"]} for m in prior[:-1]]
+                    try:
+                        result = await ai_agent.run_agent(str(mid), text, history=history,
+                                                          conversation_id=str(conv["_id"]))
+                    except LLMNotConfigured:
+                        continue
+                    reply = result["reply"]
+                    if reply:
+                        try:
+                            await whatsapp_service.send_text(conn, from_phone, reply)
+                            status = "sent"
+                        except Exception:
+                            status = "queued"
+                        await db.messages.insert_one({
+                            "conversation_id": conv["_id"], "merchant_id": mid, "direction": "outbound",
+                            "sender": "ai", "body": reply, "status": status,
+                            "tool_trace": result.get("tool_trace"), "created_at": iso_now()})
+                        await db.conversations.update_one({"_id": conv["_id"]},
+                            {"$set": {"last_message": reply, "last_message_at": iso_now()}})
+    except Exception:
+        pass
+
+
 @webhook_router.post("/whatsapp")
-async def whatsapp_incoming(request: Request):
+async def whatsapp_incoming(request: Request, background: BackgroundTasks):
     body = await request.body()
     sig = request.headers.get("X-Hub-Signature-256", "")
     if not whatsapp_service.verify_signature(body, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
     payload = await request.json()
     await db.webhook_events.insert_one({"source": "whatsapp", "payload": payload, "received_at": iso_now()})
+    background.add_task(_process_whatsapp_inbound, payload)
     return {"received": True}
 
 

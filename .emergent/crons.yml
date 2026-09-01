@@ -1,0 +1,8 @@
+crons:
+  - name: abandoned-recovery
+    description: "Sends WhatsApp follow-ups for abandoned order sessions past the merchant's delay"
+    cron: "*/15 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/abandoned-recovery"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

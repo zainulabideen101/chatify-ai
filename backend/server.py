@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from database import client
-from routers import auth, merchant, integrations, commerce, inbox, analytics
+from routers import auth, merchant, integrations, commerce, inbox, analytics, ai, cron
 import seed
 
 logging.basicConfig(level=logging.INFO,
@@ -37,6 +37,8 @@ app.include_router(integrations.webhook_router)
 app.include_router(commerce.router)
 app.include_router(inbox.router)
 app.include_router(analytics.router)
+app.include_router(ai.router)
+app.include_router(cron.router)
 
 app.add_middleware(
     CORSMiddleware,

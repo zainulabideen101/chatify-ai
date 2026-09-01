@@ -1,13 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/Layout";
 import { Section, useFetch } from "@/components/bits";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { WhatsappLogo, CheckCircle, Warning } from "@phosphor-icons/react";
+import { WhatsappLogo, CheckCircle, Warning, FacebookLogo } from "@phosphor-icons/react";
 
 export default function WhatsApp() {
   const { data, loading, reload } = useFetch("/integrations/status");
+  const { data: embed } = useFetch("/integrations/whatsapp/embedded-config");
   const [form, setForm] = useState({ waba_id: "", phone_number_id: "", display_phone_number: "", access_token: "" });
+
+  useEffect(() => {
+    if (!embed?.configured || window.FB) return;
+    window.fbAsyncInit = function () {
+      window.FB.init({ appId: embed.app_id, autoLogAppEvents: true, xfbml: true, version: embed.graph_version });
+    };
+    const s = document.createElement("script");
+    s.src = "https://connect.facebook.net/en_US/sdk.js";
+    s.async = true; s.defer = true;
+    document.body.appendChild(s);
+  }, [embed]);
+
+  const launchEmbeddedSignup = () => {
+    if (!embed?.configured || !window.FB) return toast.error("Meta App not configured on server yet.");
+    window.FB.login((response) => {
+      if (response.authResponse?.code) {
+        toast.info("Signup started — finalizing…");
+        // waba_id / phone_number_id arrive via the WA embedded signup message event in production.
+        api.post("/integrations/whatsapp/embedded-exchange", { code: response.authResponse.code })
+          .then(() => { toast.success("WhatsApp connected"); reload(); })
+          .catch((e) => toast.error(e.response?.data?.detail || "Exchange failed"));
+      }
+    }, { config_id: embed.config_id, response_type: "code", override_default_response_type: true });
+  };
 
   const connect = async () => {
     for (const k of Object.keys(form)) if (!form[k]) return toast.error("All fields required");

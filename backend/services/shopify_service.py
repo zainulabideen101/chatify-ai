@@ -79,22 +79,81 @@ class ShopifyService:
         resp.raise_for_status()
         return resp.json()["access_token"]
 
-    async def sync_catalog(self, shop_domain: str, access_token: str) -> dict:
-        """Pull products/variants/inventory from Shopify Admin API.
+    async def sync_catalog(self, shop_domain: str, access_token_enc: str, merchant_id: str) -> dict:
+        """Pull products/variants from Shopify Admin API into the tenant catalog.
 
         Requires a live connection. Raises when not configured so we never
         return fake catalog data.
         """
-        raise ShopifyNotConfigured(
-            "Cannot sync catalog: connect a Shopify store first. "
-            "Live sync runs once SHOPIFY_API_KEY/SECRET are set and a store is authorized."
-        )
+        if not self.configured or not access_token_enc:
+            raise ShopifyNotConfigured(
+                "Cannot sync catalog: connect a Shopify store first. "
+                "Live sync runs once SHOPIFY_API_KEY/SECRET are set and a store is authorized."
+            )
+        import requests
+        from bson import ObjectId
+        from datetime import datetime, timezone
+        from database import db
+        from services.crypto import decrypt_secret
 
-    async def create_order(self, shop_domain: str, access_token: str, payload: dict) -> dict:
+        token = decrypt_secret(access_token_enc)
+        headers = {"X-Shopify-Access-Token": token}
+        url = f"https://{shop_domain}/admin/api/{self.API_VERSION}/products.json?limit=250"
+        errors = 0
+        products = variants = 0
+        oid = ObjectId(merchant_id)
+        while url:
+            resp = requests.get(url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            for p in resp.json().get("products", []):
+                image = (p.get("image") or {}).get("src") or (p.get("images", [{}])[0].get("src") if p.get("images") else None)
+                await db.products.update_one(
+                    {"merchant_id": oid, "shopify_product_id": p["id"]},
+                    {"$set": {"merchant_id": oid, "shopify_product_id": p["id"],
+                              "title": p["title"], "status": p.get("status", "active"),
+                              "price": float(p["variants"][0]["price"]) if p.get("variants") else 0,
+                              "image": image, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                    upsert=True)
+                pdoc = await db.products.find_one({"merchant_id": oid, "shopify_product_id": p["id"]})
+                products += 1
+                for v in p.get("variants", []):
+                    inv = v.get("inventory_quantity", 0) or 0
+                    await db.product_variants.update_one(
+                        {"merchant_id": oid, "shopify_variant_id": v["id"]},
+                        {"$set": {"merchant_id": oid, "product_id": pdoc["_id"],
+                                  "shopify_variant_id": v["id"], "size": v.get("option1"),
+                                  "color": v.get("option2"), "price": float(v["price"]),
+                                  "inventory": inv, "sku": v.get("sku")}},
+                        upsert=True)
+                    variants += 1
+            # pagination via Link header
+            link = resp.headers.get("Link", "")
+            nxt = None
+            for part in link.split(","):
+                if 'rel="next"' in part:
+                    nxt = part[part.find("<") + 1:part.find(">")]
+            url = nxt
+
+        await db.shopify_connections.update_one(
+            {"merchant_id": oid},
+            {"$set": {"last_sync": datetime.now(timezone.utc).isoformat(), "sync_errors": errors}})
+        return {"synced": True, "products": products, "variants": variants, "errors": errors}
+
+    async def create_order(self, shop_domain: str, access_token_enc: str, payload: dict) -> dict:
         """Create an order via Shopify Admin API. Never fake success."""
-        raise ShopifyNotConfigured(
-            "Cannot create Shopify order: no authorized Shopify connection."
-        )
+        if not self.configured or not access_token_enc:
+            raise ShopifyNotConfigured(
+                "Cannot create Shopify order: no authorized Shopify connection."
+            )
+        import requests
+        from services.crypto import decrypt_secret
+        token = decrypt_secret(access_token_enc)
+        resp = requests.post(
+            f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders.json",
+            headers={"X-Shopify-Access-Token": token},
+            json={"order": payload}, timeout=30)
+        resp.raise_for_status()
+        return resp.json()["order"]
 
 
 shopify_service = ShopifyService()
