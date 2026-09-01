@@ -135,7 +135,7 @@
 ## metadata:
 ##     created_by: "main_agent"
 ##     version: "1.0"
-##     test_sequence: 3
+##     test_sequence: 4
 ##     run_ui: false
 ## test_plan:
 ##     current_focus:
@@ -507,3 +507,44 @@
 ##     -message: "Toggle visual bug fixed; frontend browser verification requested against the exact AI Agent settings page."
 ##     -agent: "testing"
 ##     -message: "AI settings toggle controls testing COMPLETE - ALL TESTS PASSED (8/8 switches, 100%). All eight switches (Cross-selling, Upselling, Abandoned-order recovery, Customer memory, Media sending, AI order creation, Human escalation, COD protection) verified with clearly visible track/thumb, explicit On/Off labels, consistent spacing, active green vs inactive muted styling, no text concatenation or overflow. Toggle functionality and state persistence confirmed. No issues found. Feature is production-ready."
+## user_feature_request:
+##     -agent: "user"
+##     -message: "Add a Payment Review Queue so sellers can approve/reject screenshots marked Payment review required, and Receipt Evidence in order details showing the screenshot, extracted amount, reference, confidence, and verification reasons. User selected both seller-side status updates and customer WhatsApp notifications."
+## backend:
+##   - task: "Payment review queue and seller decision API"
+##     implemented: true
+##     working: true
+##     file: "backend/routers/commerce.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Added tenant-scoped payment-review queue, protected evidence file endpoint, approve/reject decisions, human-approved/rejected labels, payment status updates, audit logging, and customer WhatsApp notifications. Notification failure does not roll back the seller decision. Order API responses no longer expose filesystem screenshot paths."
+##         -working: true
+##         -agent: "testing"
+##         -comment: "PAYMENT REVIEW QUEUE AND RECEIPT EVIDENCE FULLY VERIFIED (21/21 tests passed, 100%). REGRESSION TESTS PASSED: (1) Auth regression - POST /api/auth/login and GET /api/auth/me work correctly with test credentials (techgear008@gmail.com). (2) GET /api/ai/tools returns llm_connected=true with 42 tools (get_payment_instructions tool registered). PAYMENT REVIEW QUEUE VERIFIED: (3) GET /api/payment-review returns only authenticated tenant's orders with payment_verification_status='review_required'. (4) Created test order with synthetic JPEG receipt (14113 bytes) containing extracted amount/reference/confidence/reasons. ORDER API SECURITY VERIFIED: (5) GET /api/orders does NOT expose payment_screenshot_path or screenshot bytes. (6) GET /api/orders/{id} does NOT expose payment_screenshot_path or screenshot bytes. PAYMENT EVIDENCE VERIFIED: (7) GET /api/orders/{id}/payment-evidence returns tenant-owned stored synthetic JPEG only to owning tenant (image/jpeg, 14113 bytes). (8) Another tenant correctly rejected with 404 (tenant isolation working). PAYMENT REVIEW APPROVE VERIFIED: (9) POST /api/orders/{id}/payment-review with approve sets payment_status='paid'. (10) Sets payment_verification_status='human_approved_screenshot'. (11) Sets label='Human approved payment screenshot'. (12) Audit fields present (payment_reviewed_at, payment_reviewed_by). (13) Notification status safely reports 'not_sent' when no WhatsApp connection exists (non-fatal). PAYMENT REVIEW REJECT VERIFIED: (14) POST /api/orders/{id}/payment-review with reject sets payment_status='unpaid'. (15) Sets payment_verification_status='payment_rejected'. (16) Sets label='Payment screenshot rejected'. (17) Customer notification behavior is non-fatal (notification='not_sent'). VALIDATION VERIFIED: (18) Invalid decision rejected with 422. (19) Non-existent order rejected with 404. (20) Double review prevented with 400. (21) Backend startup clean with 'Startup: indexes + demo seed complete', no IndexKeySpecsConflict errors. All payment review functionality working correctly with real synthetic JPEG receipts, proper tenant isolation, audit logging, and safe notification handling."
+## frontend:
+##   - task: "Payment review queue and receipt evidence UI"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/pages/Orders.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Expanded Orders with a payment review queue, clickable order details, authenticated screenshot preview, extracted amount/reference/date/confidence/reasons, and Approve & notify / Reject & notify actions. Frontend lint and supervisor compilation pass."
+## test_plan:
+##     current_focus:
+##         - "Frontend Orders queue, evidence preview, decision buttons, status rendering, and existing order regression"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Payment review and receipt evidence implementation is ready for backend testing first. No payment success, WhatsApp notification, or screenshot content is mocked."
+##     -agent: "testing"
+##     -message: "Backend payment review queue and receipt evidence testing COMPLETE - ALL TESTS PASSED (21/21, 100%). VERIFIED: (1) Auth regression - login and /auth/me work correctly. (2) GET /api/ai/tools returns llm_connected=true with 42 tools. (3) GET /api/payment-review returns only authenticated tenant's review_required orders. (4) GET /api/orders and GET /api/orders/{id} do NOT expose payment_screenshot_path or screenshot bytes. (5) GET /api/orders/{id}/payment-evidence returns tenant-owned synthetic JPEG (14113 bytes) only to owning tenant, rejects another tenant with 404. (6) POST /api/orders/{id}/payment-review with approve: payment_status='paid', payment_verification_status='human_approved_screenshot', label='Human approved payment screenshot', audit fields present, notification='not_sent' (safe when WhatsApp not configured). (7) POST /api/orders/{id}/payment-review with reject: payment_status='unpaid', payment_verification_status='payment_rejected', label='Payment screenshot rejected', notification non-fatal. (8) Validation working: invalid decision rejected with 422, non-existent order rejected with 404, double review prevented with 400. (9) Backend startup clean with no index errors. All payment review functionality working correctly with proper tenant isolation, audit logging, and safe notification handling. No real funds, real Meta credentials, or mocked provider responses used. Backend is production-ready."

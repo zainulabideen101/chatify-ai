@@ -86,6 +86,11 @@ class WhatsAppConnectRequest(BaseModel):
     access_token: str
 
 
+
+
+class PaymentReviewDecision(BaseModel):
+    decision: Literal["approve", "reject"]
+    note: Optional[str] = None
 # ---------- Media ----------
 class MediaCreate(BaseModel):
     filename: str

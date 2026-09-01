@@ -121,8 +121,12 @@ async def verify_payment_screenshot(merchant_id: str, conversation_id: str, imag
         "payment_verification_reasons": result.get("reasons", []),
         "payment_screenshot_path": str(path),
         "payment_screenshot_media_id": media_id,
+        "payment_screenshot_mime_type": mime_type,
         "payment_verified_at": now,
         "payment_reference": result.get("reference"),
+        "payment_extracted_amount": amount,
+        "payment_transaction_date": result.get("transaction_date"),
+        "payment_recipient_account": result.get("recipient_account"),
     }
     if approved:
         update.update({"payment_status": "paid", "payment_verified_by": "ai", "payment_method": "BANK_TRANSFER"})

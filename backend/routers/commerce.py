@@ -1,16 +1,25 @@
 """Catalog (products, media), customers, orders, abandoned orders, COD, address tool."""
+from pathlib import Path
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from database import db, serialize, serialize_list
 from deps import get_tenant_id
-from models import MediaCreate, iso_now
+from models import MediaCreate, PaymentReviewDecision, iso_now
 from services.commerce import address_validator, cod_assessor
+from services.whatsapp_service import whatsapp_service, WhatsAppNotConfigured
 from audit import log_action
 
 router = APIRouter(prefix="/api", tags=["commerce"])
 
 
+
+
+def _safe_order(doc):
+    result = serialize(doc)
+    result.pop("payment_screenshot_path", None)
+    return result
 def _oid(tid): return ObjectId(tid)
 
 
@@ -103,7 +112,7 @@ async def get_customer(customer_id: str, tid: str = Depends(get_tenant_id)):
 @router.get("/orders")
 async def list_orders(tid: str = Depends(get_tenant_id), limit: int = 100):
     docs = await db.shopify_orders.find({"merchant_id": _oid(tid)}).sort("created_at", -1).limit(limit).to_list(limit)
-    return serialize_list(docs)
+    return [_safe_order(doc) for doc in docs]
 
 
 @router.get("/orders/{order_id}")
@@ -111,8 +120,86 @@ async def get_order(order_id: str, tid: str = Depends(get_tenant_id)):
     doc = await db.shopify_orders.find_one({"_id": ObjectId(order_id), "merchant_id": _oid(tid)})
     if not doc:
         raise HTTPException(404, "Order not found")
-    return serialize(doc)
+    return _safe_order(doc)
 
+
+
+@router.get("/payment-review")
+async def payment_review_queue(tid: str = Depends(get_tenant_id)):
+    docs = await db.shopify_orders.find({
+        "merchant_id": _oid(tid), "payment_verification_status": "review_required",
+    }).sort("payment_verified_at", -1).limit(200).to_list(200)
+    return [_safe_order(doc) for doc in docs]
+
+
+@router.get("/orders/{order_id}/payment-evidence")
+async def payment_evidence(order_id: str, tid: str = Depends(get_tenant_id)):
+    doc = await db.shopify_orders.find_one({"_id": ObjectId(order_id), "merchant_id": _oid(tid)})
+    if not doc or not doc.get("payment_screenshot_path"):
+        raise HTTPException(404, "Payment screenshot not found")
+    root = Path("/app/backend/uploads/payment_screenshots").resolve()
+    evidence = Path(doc["payment_screenshot_path"]).resolve()
+    if root not in evidence.parents or not evidence.is_file():
+        raise HTTPException(404, "Payment screenshot not found")
+    return FileResponse(evidence, media_type=doc.get("payment_screenshot_mime_type", "application/octet-stream"))
+
+
+@router.post("/orders/{order_id}/payment-review")
+async def review_payment(order_id: str, payload: PaymentReviewDecision, tid: str = Depends(get_tenant_id)):
+    oid = _oid(tid)
+    order = await db.shopify_orders.find_one({"_id": ObjectId(order_id), "merchant_id": oid})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.get("payment_verification_status") != "review_required":
+        raise HTTPException(400, "This order is not waiting for payment review")
+    now = iso_now()
+    approved = payload.decision == "approve"
+    update = {
+        "payment_verification_status": "human_approved_screenshot" if approved else "payment_rejected",
+        "payment_verification_label": "Human approved payment screenshot" if approved else "Payment screenshot rejected",
+        "payment_verified_by": "human",
+        "payment_reviewed_by": tid,
+        "payment_reviewed_at": now,
+        "payment_review_note": payload.note,
+        "payment_status": "paid" if approved else "unpaid",
+    }
+    if approved:
+        update["payment_method"] = "BANK_TRANSFER"
+    await db.shopify_orders.update_one({"_id": order["_id"], "merchant_id": oid}, {"$set": update})
+    if order.get("conversation_id"):
+        await db.conversations.update_one(
+            {"_id": order["conversation_id"], "merchant_id": oid},
+            {"$set": {"payment_review_status": "approved" if approved else "rejected", "needs_attention": False}},
+        )
+    customer = await db.customers.find_one({"_id": order.get("customer_id"), "merchant_id": oid})
+    conversation = None
+    if order.get("conversation_id"):
+        conversation = await db.conversations.find_one({"_id": order["conversation_id"], "merchant_id": oid})
+    if not conversation and customer:
+        conversation = await db.conversations.find_one({"merchant_id": oid, "customer_id": customer["_id"]}, sort=[("last_message_at", -1)])
+    connection = await db.whatsapp_connections.find_one({"merchant_id": oid})
+    notification = "not_sent"
+    notification_text = (
+        f"Your payment for order #{order.get('order_number')} has been verified and your order is now being processed."
+        if approved else
+        "We could not verify the payment screenshot for your order. Please send a clearer screenshot or contact us for help."
+    )
+    if connection and customer and customer.get("phone"):
+        try:
+            sent = await whatsapp_service.send_text(connection, customer["phone"], notification_text)
+            notification = "sent"
+            if conversation:
+                await db.messages.insert_one({
+                    "conversation_id": conversation["_id"], "merchant_id": oid, "direction": "outbound",
+                    "sender": "human", "body": notification_text, "status": "sent",
+                    "whatsapp_message_id": ((sent.get("messages") or [{}])[0]).get("id"), "created_at": now,
+                })
+        except (WhatsAppNotConfigured, Exception):
+            notification = "failed"
+    await log_action(tid, "payment_review_decided", actor="human", resource_id=order_id,
+                     detail={"decision": payload.decision, "notification": notification})
+    updated = await db.shopify_orders.find_one({"_id": order["_id"], "merchant_id": oid})
+    return {"order": _safe_order(updated), "notification": notification}
 
 # ---------- Abandoned orders ----------
 @router.get("/abandoned-orders")
