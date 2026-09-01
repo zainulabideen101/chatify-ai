@@ -14,12 +14,16 @@ class WhatsAppNotConfigured(Exception):
 
 
 class WhatsAppService:
-    GRAPH_VERSION = "v21.0"
 
     def __init__(self):
         self.app_id = os.environ.get("META_APP_ID", "")
         self.app_secret = os.environ.get("META_APP_SECRET", "")
-        self.verify_token = os.environ.get("META_VERIFY_TOKEN", "")
+        self.verify_token = os.environ.get("META_VERIFY_TOKEN") or os.environ.get("META_WEBHOOK_VERIFY_TOKEN", "")
+        self.graph_version = os.environ.get("META_GRAPH_VERSION", "v25.0")
+
+    @property
+    def GRAPH_VERSION(self):
+        return self.graph_version
 
     @property
     def app_configured(self) -> bool:
@@ -77,8 +81,14 @@ class WhatsAppService:
         from services.crypto import decrypt_secret
         phone_number_id = connection["phone_number_id"]
         token = decrypt_secret(connection["access_token_enc"])
+        params = {}
+        if self.app_secret:
+            params["appsecret_proof"] = hmac.new(
+                self.app_secret.encode(), token.encode(), hashlib.sha256
+            ).hexdigest()
         resp = requests.post(
             f"https://graph.facebook.com/{self.GRAPH_VERSION}/{phone_number_id}/messages",
+            params=params,
             headers={"Authorization": f"Bearer {token}"},
             json=payload,
             timeout=20,

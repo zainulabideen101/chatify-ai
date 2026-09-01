@@ -24,7 +24,11 @@ async def ensure_indexes():
         [("merchant_id", 1), ("day", 1), ("customer_phone", 1)], unique=True)
     await db["billing_subscriptions"].create_index("merchant_id", unique=True)
     await db["recovery_settings"].create_index("merchant_id", unique=True)
+    await db["webhook_events"].create_index("event_key", unique=True, sparse=True)
     await db.merchants.create_index("store_name")
+    await db["whatsapp_connections"].create_index("merchant_id", unique=True)
+    await db["whatsapp_connections"].create_index("waba_id", unique=True, sparse=True)
+    await db["whatsapp_connections"].create_index("phone_number_id", unique=True, sparse=True)
     for coll in ["products", "product_variants", "product_media", "customers",
                  "conversations", "messages", "shopify_orders", "abandoned_orders",
                  "recommendation_events", "audit_logs", "business_rules",

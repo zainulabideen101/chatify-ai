@@ -89,8 +89,9 @@ async def send_message(cid: str, payload: SendMessageRequest, tid: str = Depends
     delivery = {"delivered": False}
     try:
         if conn and conv.get("customer_phone"):
-            await whatsapp_service.send_text(conn, conv["customer_phone"], payload.body)
+            send_result = await whatsapp_service.send_text(conn, conv["customer_phone"], payload.body)
             msg["status"] = "sent"
+            msg["whatsapp_message_id"] = ((send_result.get("messages") or [{}])[0]).get("id")
             delivery["delivered"] = True
     except WhatsAppNotConfigured as e:
         delivery["error"] = str(e)
