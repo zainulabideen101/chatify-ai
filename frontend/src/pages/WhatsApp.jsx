@@ -48,26 +48,28 @@ export default function WhatsApp() {
     return () => window.removeEventListener("message", onMessage);
   }, [embed]);
 
+  const completeEmbeddedSignup = async (response) => {
+    const code = response?.authResponse?.code;
+    if (!code) { setSignupBusy(false); return toast.error("Meta did not return an authorization code."); }
+    try {
+      await api.post("/integrations/whatsapp/embedded-exchange", {
+        code,
+        waba_id: signupAssets.waba_id || signupAssets.wabaId || null,
+        phone_number_id: signupAssets.phone_number_id || signupAssets.phoneNumberId || null,
+      });
+      toast.success("WhatsApp connected");
+      setSignupBusy(false);
+      reload();
+    } catch (e) {
+      setSignupBusy(false);
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "WhatsApp connection failed");
+    }
+  };
+
   const launchEmbeddedSignup = () => {
     if (!embed?.configured || !window.FB) return toast.error("Meta Embedded Signup is not configured on the server.");
     setSignupBusy(true);
-    window.FB.login(async (response) => {
-      const code = response?.authResponse?.code;
-      if (!code) { setSignupBusy(false); return toast.error("Meta did not return an authorization code."); }
-      try {
-        await api.post("/integrations/whatsapp/embedded-exchange", {
-          code,
-          waba_id: signupAssets.waba_id || signupAssets.wabaId || null,
-          phone_number_id: signupAssets.phone_number_id || signupAssets.phoneNumberId || null,
-        });
-        toast.success("WhatsApp connected");
-        setSignupBusy(false);
-        reload();
-      } catch (e) {
-        setSignupBusy(false);
-        toast.error(formatApiErrorDetail(e.response?.data?.detail) || "WhatsApp connection failed");
-      }
-    }, {
+    window.FB.login((response) => { void completeEmbeddedSignup(response); }, {
       config_id: embed.config_id,
       response_type: "code",
       override_default_response_type: true,
