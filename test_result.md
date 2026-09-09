@@ -629,3 +629,41 @@
 ##     -message: "Shopify integration code is ready with no mocked order success. Backend testing should verify safe behavior without credentials; live Shopify portal synchronization remains unverified until credentials are installed."
 ##     -agent: "testing"
 ##     -message: "Shopify order synchronization testing COMPLETE - ALL TESTS PASSED (28/28, 100%). VERIFIED: (1) Backend startup clean with 'Startup: indexes + demo seed complete', no index errors. (2) Auth regression - login and /auth/me work correctly. (3) GPT-5.4 playground functional with real LLM responses. (4) GET /api/ai/tools returns llm_connected=true with 42 tools including create_shopify_order (registered and implemented). (5) Fail-closed behavior - Shopify not connected, create_customer_order returns created=False with code=shopify_not_connected and warning message. (6) No local fake orders created when Shopify not connected. (7) Cancellation intent detector recognizes 5 English + 5 Roman Urdu phrases. (8) Cancellation without Shopify connection returns cancelled=False, marks order with cancellation_status=pending_shopify, message mentions seller review - no false confirmation. (9) Shopify webhook invalid HMAC returns 401. (10) Webhook event deduplication working with unique event_key index and SHA256 hash. (11) Webhook tenant routing safe - routes by shop_domain, merchant-scoped updates. (12) Local order updates merchant-scoped. (13) MongoDB index verified - unique (merchant_id, shopify_order_id) with partialFilterExpression shopify_order_id $type: 'string'. All requirements met. No live Shopify API calls made. Backend is production-ready for Shopify integration once credentials are provided."
+## user_feedback:
+##     -agent: "user"
+##     -message: "User added META_APP_ID, META_APP_SECRET, META_CONFIG_ID, META_VERIFY_TOKEN, and META_GRAPH_VERSION to backend/.env and wants tenant-facing Meta Embedded Signup Connect with WhatsApp button."
+## backend:
+##   - task: "Load platform Meta secrets and expose Embedded Signup config"
+##     implemented: true
+##     working: true
+##     file: "backend/routers/integrations.py, backend/services/meta_whatsapp.py, backend/.env"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: true
+##         -agent: "main"
+##         -comment: "Verified all five Meta environment key names are present, restarted backend, and startup completed cleanly. The authenticated embedded-config route should now report configured=true without exposing META_APP_SECRET."
+## frontend:
+##   - task: "Tenant WhatsApp Embedded Signup button"
+##     implemented: true
+##     working: "PENDING"
+##     file: "frontend/src/pages/WhatsApp.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "PENDING"
+##         -agent: "main"
+##         -comment: "Existing tenant page already renders Connect with Meta Embedded Signup when authenticated embedded-config reports configured=true; the page keeps manual configuration and never receives the app secret. Browser visibility and config response need testing after the backend restart."
+## test_plan:
+##     current_focus:
+##         - "Backend embedded-config reports configured=true and server_configured=true without leaking secret"
+##         - "Frontend tenant WhatsApp page displays the Connect with Meta Embedded Signup button"
+##         - "No live Meta popup exchange unless Meta app dashboard setup is valid"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+## agent_communication:
+##     -agent: "main"
+##     -message: "Platform Meta keys are present and backend restarted. Backend testing must run first; frontend browser verification follows with user permission per protocol."
