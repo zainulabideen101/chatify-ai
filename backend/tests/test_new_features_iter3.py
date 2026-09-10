@@ -68,47 +68,18 @@ def owner_headers(owner_token):
     return {"Authorization": f"Bearer {owner_token}", "Content-Type": "application/json"}
 
 
-# ---------------- unit: split reply ----------------
-class TestSplitReply:
-    def test_blank_lines_single_message(self):
-        from services.conversation_ai import _split_reply_messages
-        parts = _split_reply_messages("first paragraph\n\nsecond paragraph")
-        assert len(parts) == 1
-        assert "first paragraph" in parts[0]
-        assert "second paragraph" in parts[0]
+# ---------------- unit: single-message policy ----------------
+class TestSingleMessagePolicy:
+    def test_message_break_marker_collapses_to_newline(self):
+        from services.ai_agent import sanitize_reply
+        # The system now always sends ONE WhatsApp message. Any stray marker becomes a newline.
+        out = sanitize_reply("step one[[MESSAGE_BREAK]]step two")
+        assert "[[MESSAGE_BREAK]]" not in out
+        assert "step one" in out and "step two" in out
 
-    def test_explicit_marker_splits(self):
-        from services.conversation_ai import _split_reply_messages
-        parts = _split_reply_messages("step one\n[[MESSAGE_BREAK]]\nstep two")
-        assert len(parts) == 2
-        assert parts[0].strip() == "step one"
-        assert parts[1].strip() == "step two"
-
-    def test_empty_returns_empty(self):
-        from services.conversation_ai import _split_reply_messages
-        assert _split_reply_messages("   ") == []
-
-
-# ---------------- unit: payment repetition guard ----------------
-class TestPaymentRepetitionGuard:
-    def test_repeat_returns_reminder(self):
-        from services.conversation_ai import _avoid_repeated_payment_details
-        prev = "Bank: X\nAccount number: 123\nIBAN: PK00"
-        out = _avoid_repeated_payment_details(prev, "payment details dobara bhejo", prev)
-        assert "already shared" in out.lower()
-
-    def test_non_payment_unchanged(self):
-        from services.conversation_ai import _avoid_repeated_payment_details
-        prev = "Bank: X\nAccount number: 123"
-        out = _avoid_repeated_payment_details("Sure, our shipping is 2-3 days.", "shipping info?", prev)
-        assert "shipping" in out.lower()
-
-    def test_different_reply_unchanged(self):
-        from services.conversation_ai import _avoid_repeated_payment_details
-        prev = "Bank: X\nAccount number: 123"
-        new = "Here is a shorter reminder about payment."
-        out = _avoid_repeated_payment_details(new, "payment again?", prev)
-        assert out == new
+    def test_empty_stays_empty(self):
+        from services.ai_agent import sanitize_reply
+        assert sanitize_reply("   ").strip() == ""
 
 
 # ---------------- generate_and_send_ai_reply integration ----------------
@@ -191,12 +162,10 @@ class TestGenerateAndSendAIReply:
                 result, outbound = _run(_go())
                 assert result["sent"] is True
                 assert len(outbound) == 1
-                assert outbound[0]["message_count"] == 1
-                assert outbound[0]["message_index"] == 0
         finally:
             self._cleanup(mid, cid, drop)
 
-    def test_explicit_marker_creates_two_sequential_messages(self):
+    def test_single_message_policy_no_split_even_with_marker(self):
         mid = _run(_get_mid())
         cid, drop = self._seed(mid, phone="+920000099102", prior_outbound=None)
         try:
@@ -220,52 +189,18 @@ class TestGenerateAndSendAIReply:
                         result = await ca.generate_and_send_ai_reply(ObjectId(mid), conv)
                         outbound = await db.messages.find(
                             {"conversation_id": conv["_id"], "direction": "outbound"}
-                        ).sort("message_index", 1).to_list(20)
+                        ).to_list(20)
                         return result, outbound
                     finally:
                         client.close()
                 result, outbound = _run(_go())
+                # ONE message only — the marker is neutralised to a newline by sanitize_reply.
+                # NOTE: run_agent is mocked here so sanitize_reply is bypassed; conversation_ai
+                # itself must not split. Verify a single outbound message was persisted/sent.
                 assert result["sent"] is True
-                assert len(send_calls) == 2
-                assert len(outbound) == 2
-                assert [m["message_index"] for m in outbound] == [0, 1]
-                assert all(m["message_count"] == 2 for m in outbound)
-                # tool_trace only on first message
+                assert len(send_calls) == 1
+                assert len(outbound) == 1
                 assert outbound[0].get("tool_trace") == [{"tool": "x"}]
-                assert outbound[1].get("tool_trace") == []
-        finally:
-            self._cleanup(mid, cid, drop)
-
-    def test_repeat_payment_guard_replaces_body(self):
-        mid = _run(_get_mid())
-        prior = ("Bank: Chatify AI Demo Bank\nAccount title: Store\n"
-                 "Account number: 000\nIBAN: PK00\nPlease send screenshot.")
-        cid, drop = self._seed(mid, phone="+920000099103", prior_outbound=prior)
-        try:
-            from services import conversation_ai as ca
-
-            async def fake_run_agent(*a, **k):
-                return {"reply": prior, "tool_trace": []}
-
-            async def fake_send(conn, phone, body):
-                return {"messages": [{"id": "wamid.g"}]}
-
-            with patch.object(ca.ai_agent, "run_agent", new=fake_run_agent), \
-                 patch.object(ca.whatsapp_service, "send_text", new=fake_send):
-                async def _go():
-                    client, db = await _db()
-                    try:
-                        conv = await db.conversations.find_one({"_id": ObjectId(cid)})
-                        await ca.generate_and_send_ai_reply(ObjectId(mid), conv)
-                        outbound = await db.messages.find(
-                            {"conversation_id": conv["_id"], "direction": "outbound"}
-                        ).sort("created_at", 1).to_list(20)
-                        return outbound
-                    finally:
-                        client.close()
-                outbound = _run(_go())
-                # last outbound should be the concise reminder
-                assert outbound[-1]["body"].lower().startswith("i have already shared")
         finally:
             self._cleanup(mid, cid, drop)
 

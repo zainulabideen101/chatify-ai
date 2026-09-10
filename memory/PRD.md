@@ -90,7 +90,18 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Tests: 22 new backend tests in `tests/test_conversations_ai_features.py`, all passing.
 
 
-## 2026-02 — AI Context Loop Fix
-- Root cause: prior conversation was stuffed inside the system prompt as a plain "CONVERSATION SO FAR:" transcript. GPT-5.4 was ignoring it and re-triggering `create_shopify_order` on every inbound turn, producing repeated "order placed" replies regardless of the customer's actual question (payment details / different product / cancellation).
-- Fix (`services/ai_agent.py`): history is now passed to `LlmChat` via `initial_messages` as real `user`/`assistant` turns (last 20). Each invocation uses a unique session_id suffix so the library holds no cross-call state. Added hard prompt rules against duplicate order creation and to explicitly respond to the latest customer message.
-- Defense in depth (`services/ai_tools.py`): `create_shopify_order` tool now short-circuits with `{created:false, duplicate:true, existing_order_number}` if an order exists for the same `conversation_id` within the last 10 minutes, guiding the LLM to answer the current question instead of re-creating an order.
+## 2026-02 — AI Context Loop Fix (v2, robust)
+- Symptom 1: AI kept re-creating identical orders on every inbound turn ("order place ho gaya" repeated 6x for unrelated messages).
+- Symptom 2 (after v1 fix): AI over-corrected and refused legitimate new orders ("Classic cap ka bhi order krna hai" → "order already placed" loop).
+- Root causes: history was passed as a static system-prompt transcript (LLM ignored it); ordering guardrail was time-based instead of item-based; `[[MESSAGE_BREAK]]` and paragraph-split logic caused 3–4 outbound messages per turn; `_avoid_repeated_payment_details` regex was brittle.
+- Fix (`services/ai_agent.py`):
+  - History is now passed to `LlmChat` via `initial_messages` as real user/assistant turns (last 20). Unique per-turn session_id — library holds no cross-call state.
+  - System prompt rewritten with a step-by-step decision tree (NEW_ORDER / SAME_ORDER / ADD / PAYMENT / TRACKING / CANCEL / GREETING / PRODUCT_INFO / COMPLAINT), and an explicit "never copy your last reply" rule.
+  - A "RECENT ORDERS ALREADY PLACED" section is injected into the system prompt from live DB data so the AI can reference existing orders without hallucinating.
+  - A final steering system message reiterates: respond to the newest message, do not repeat, send ONE message.
+  - Output-layer safety net: if the LLM's draft is ≥85% similar (SequenceMatcher) to the last outbound message, a second LLM call is made with a stronger nudge; the more-different draft wins.
+  - `sanitize_reply` neutralises any stray `[[MESSAGE_BREAK]]` marker → newline.
+- Fix (`services/ai_tools.py`):
+  - `create_shopify_order` guardrail is now **item-signature aware**, not time-based. It only blocks when the SAME product+variant+quantity set already exists as an active (non-cancelled) order for this conversation. Different items always pass through.
+  - On duplicate, returns `{created:false, duplicate:true, existing_order_number, existing_items}` so the LLM answers with the existing order number instead of looping.
+- Fix (`services/conversation_ai.py`): removed `[[MESSAGE_BREAK]]` splitting and `_avoid_repeated_payment_details` regex hack. Every AI turn now sends exactly ONE WhatsApp message. Old unit tests replaced with the new single-message policy tests.

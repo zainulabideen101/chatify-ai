@@ -62,7 +62,7 @@ TOOL_SCHEMAS = [
         }, "required": ["items"]}}},
     {"type": "function", "function": {
         "name": "create_shopify_order",
-        "description": "After the customer explicitly confirms the final order summary, create the order in Chatify AI immediately. If Shopify is connected, also synchronize it there. Never mention integrations or technical details to the customer.",
+        "description": "After the customer explicitly confirms the final order summary, create the order in Chatify AI immediately. Returns {created:true, order_number} on success. Returns {created:false, duplicate:true, existing_order_number, existing_items} if an active order with identical items already exists for this conversation — do NOT retry, just answer the customer using the existing order number. Never mention integrations or technical details to the customer.",
         "parameters": {"type": "object", "properties": {
             "items": {"type": "array", "items": {"type": "object", "properties": {
                 "product": {"type": "string"}, "size": {"type": "string"}, "color": {"type": "string"}, "quantity": {"type": "integer"}}}},
@@ -198,22 +198,54 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
 
     if name == "create_shopify_order":
         from services.shopify_orders import create_customer_order
-        # Guardrail: prevent the LLM from re-creating an order for the same conversation within a short window.
+
+        def _signature(items: list[dict]) -> tuple:
+            """Stable signature of a cart so we can detect true duplicates regardless of key order."""
+            normalized = []
+            for it in items or []:
+                normalized.append((
+                    (it.get("product") or "").strip().lower(),
+                    (it.get("size") or "").strip().lower(),
+                    (it.get("color") or "").strip().lower(),
+                    int(it.get("quantity", 1) or 1),
+                ))
+            return tuple(sorted(normalized))
+
+        # Guardrail: only block when the SAME cart (same items+variants+quantities) was already
+        # created recently for this conversation. Different items must always be allowed.
         if ctx.get("conversation_id"):
-            from datetime import datetime, timedelta, timezone
-            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-            recent = await db.shopify_orders.find_one({
+            new_sig = _signature(args.get("items") or [])
+            existing = await db.shopify_orders.find({
                 "merchant_id": oid,
                 "conversation_id": ObjectId(ctx["conversation_id"]),
-                "created_at": {"$gte": cutoff},
-            }, sort=[("created_at", -1)])
-            if recent:
-                return {
-                    "created": False,
-                    "duplicate": True,
-                    "existing_order_number": recent.get("order_number"),
-                    "message": "An order was already placed for this conversation just now. Do NOT create another. Address the customer's current question instead (payment details, tracking, adding a different product, or cancellation).",
-                }
+                "fulfillment_status": {"$nin": ["cancelled", "cancelled_by_customer"]},
+            }).sort("created_at", -1).limit(5).to_list(5)
+            for order in existing:
+                existing_sig = tuple(sorted(
+                    (
+                        (it.get("title") or "").strip().lower(),
+                        (it.get("variant") or "").strip().lower(),
+                        "",
+                        int(it.get("qty", 1) or 1),
+                    )
+                    for it in (order.get("items") or [])
+                ))
+                # Match if the product+variant+qty tuple set matches (color is optional).
+                if new_sig and existing_sig and all(
+                    any(e[0] == n[0] and (not n[1] or n[1] == e[1]) and n[3] == e[3] for e in existing_sig)
+                    for n in new_sig
+                ) and len(new_sig) == len(existing_sig):
+                    return {
+                        "created": False,
+                        "duplicate": True,
+                        "existing_order_number": order.get("order_number"),
+                        "existing_items": order.get("items"),
+                        "message": (
+                            "The customer already has an order with these exact items. "
+                            "Do NOT create another. Tell the customer the existing order number and ask if they want "
+                            "an ADDITIONAL separate order (wait for a clear yes) or if they want to change/cancel it."
+                        ),
+                    }
         result = await create_customer_order(mid, ctx.get("conversation_id"), args)
         # Provider/sync metadata is merchant-internal and must not be exposed to the customer-facing LLM turn.
         return {k: v for k, v in result.items() if k not in {"shopify_synced", "shopify_order_id", "sync_status"}}
