@@ -5,7 +5,9 @@ system is allowed to do." The LLM requests a tool; `services.ai_tools.dispatch`
 validates + executes it against tenant data. The LLM never touches external APIs.
 """
 import os
+import re
 import json
+import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
@@ -106,6 +108,27 @@ SALES_MODE_GUIDANCE = {
 }
 
 
+_EMOJI_CATEGORIES = {"So", "Sk"}  # Other-symbol + Modifier-symbol (covers emoji & pictographs)
+
+
+def sanitize_reply(text: str) -> str:
+    """Enforce persona rules at the output layer: strip emojis, markdown, and stray asterisks/underscores
+    that the LLM may still emit. Keeps regular punctuation and multilingual letters intact."""
+    if not text:
+        return text
+    # Remove emojis and pictographs (Unicode symbol categories used by emoji).
+    cleaned = "".join(ch for ch in text if unicodedata.category(ch) not in _EMOJI_CATEGORIES)
+    # Strip markdown emphasis markers (*, _, `) used for bold/italic/code without breaking numeric/URL content.
+    cleaned = re.sub(r"\*+", "", cleaned)
+    cleaned = re.sub(r"`+", "", cleaned)
+    # Only remove underscores that look like markdown emphasis (surrounded by word chars), preserve those inside URLs/IDs.
+    cleaned = re.sub(r"(?<!\w)_(?=\S)|(?<=\S)_(?!\w)", "", cleaned)
+    # Collapse whitespace introduced by removals.
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 class AIAgentService:
     def __init__(self):
         self.tools = ToolRegistry()
@@ -129,9 +152,17 @@ class AIAgentService:
         if not settings.get("media_sending", True): toggles.append("Do not offer to send media.")
         toggle_text = "\n".join(f"- {t}" for t in toggles) or "- (all sales features enabled per mode)"
 
-        return f"""You are the AI sales & customer-service assistant for "{store}", a Pakistani e-commerce store selling on WhatsApp. You act like a real human sales employee, not a bot.
+        return f"""You are the AI sales and customer-service assistant for "{store}", a Pakistani e-commerce store selling on WhatsApp. You act like a real, professional human sales employee — never like a bot.
 
-LANGUAGE: Reply in the SAME language/style the customer uses — Roman Urdu, Urdu, English, or mixed. If they write Roman Urdu (e.g. "black hoodie medium mein hai?"), reply in natural Roman Urdu. Keep messages short and WhatsApp-like. Ask ONE question at a time. Use minimal, natural emoji.
+PERSONA AND TONE (STRICT — NEVER BREAK):
+- Always stay polite, formal, and professional. Address customers respectfully (e.g., "Sir", "Ma'am", "Ap" in Urdu).
+- NEVER use emojis of any kind (no faces, hearts, hands, stars, checkmarks — nothing). Plain text only.
+- NEVER use markdown formatting. No asterisks (*), no underscores (_), no backticks, no bullet dashes, no bold/italic markers. Write in plain sentences.
+- Keep replies short and WhatsApp-appropriate. Ask ONE question at a time.
+- If a customer is rude, abusive, uses profanity, or insults you, DO NOT match their tone, DO NOT apologise for their behaviour, and DO NOT get defensive. Stay calm and courteous. Respond briefly and professionally (e.g., "I understand your frustration. Let me help you resolve this. Could you please share your order number?"). If abuse continues or the customer demands a human, call request_human_attention immediately.
+- Never argue with the customer. Never make jokes. Never use slang like "bro", "yaar", "bhai" unless the customer used it first and even then keep it minimal and respectful.
+
+LANGUAGE: Reply in the SAME language/style the customer uses — Roman Urdu, Urdu, English, or mixed. If they write Roman Urdu (e.g. "black hoodie medium mein hai?"), reply in natural Roman Urdu. Keep it formal in that language.
 
 SALES MODE = {mode}: {SALES_MODE_GUIDANCE.get(mode, "")}
 {toggle_text}
@@ -143,13 +174,13 @@ HARD RULES (never break):
 - Use search_knowledge_base before answering policy questions (returns, shipping, warranty, sizes).
 - Use validate_address before accepting a delivery address; if incomplete, ask for exactly the missing parts.
 - Before any order, use build_order_summary and show the customer the summary, then ask for explicit confirmation. After explicit confirmation, call create_shopify_order with the confirmed items/address/payment method. Only say the order is placed when the tool returns created=true; if it returns created=false, explain that Shopify connection or catalog sync is required and do not invent an order number.
-- If the customer wants online bank-transfer payment, call get_payment_instructions, send the returned bank details naturally, and ask them to send a clear screenshot after transferring. Never say payment is confirmed from a message alone. Never say payment is confirmed from a message alone.
-- If you are unsure or the request is a complaint/refund/angry customer, call request_human_attention.
+- If the customer wants online bank-transfer payment, call get_payment_instructions, send the returned bank details naturally, and ask them to send a clear screenshot after transferring. Never say payment is confirmed from a message alone.
+- If you are unsure, the request is a complaint/refund, the customer is abusive, or the customer explicitly asks for a human, call request_human_attention.
 
 MERCHANT RULES ("Teach your AI"):
 {rule_lines}
 
-Be concise, accurate, and move the customer toward their goal: UNDERSTAND → HELP → RECOMMEND IF RELEVANT → COMPLETE ACTION."""
+Be concise, accurate, and move the customer toward their goal: UNDERSTAND -> HELP -> RECOMMEND IF RELEVANT -> COMPLETE ACTION."""
 
     async def run_agent(self, merchant_id: str, user_message: str,
                         history: list[dict] | None = None,
@@ -187,7 +218,7 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND → HE
                 chat.add_tool_result(tc.id, json.dumps(result, default=str))
             response = await chat.send_message_with_tools()
 
-        return {"reply": response.content or "", "tool_trace": tool_trace}
+        return {"reply": sanitize_reply(response.content or ""), "tool_trace": tool_trace}
 
 
 ai_agent = AIAgentService()

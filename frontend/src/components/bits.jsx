@@ -6,7 +6,7 @@ export function useFetch(url, deps = []) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const reload = () => {
-    setLoading(true);
+    if (!data) setLoading(true);
     api.get(url).then((r) => { setData(r.data); setError(null); })
       .catch((e) => setError(e))
       .finally(() => setLoading(false));

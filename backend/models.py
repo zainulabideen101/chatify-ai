@@ -50,6 +50,7 @@ class AISettingsUpdate(BaseModel):
     cod_protection: Optional[bool] = None
     max_discount_percent: Optional[float] = Field(default=None, ge=0, le=100)
     abandoned_delay_minutes: Optional[int] = Field(default=None, ge=0, le=10080)
+    auto_handover_seconds: Optional[int] = Field(default=None, ge=0, le=3600)
 
 
 class BusinessRuleCreate(BaseModel):
@@ -124,4 +125,5 @@ class DefaultAISettings:
             "cod_protection": True,
             "max_discount_percent": 10,
             "abandoned_delay_minutes": 60,
+            "auto_handover_seconds": 30,
         }

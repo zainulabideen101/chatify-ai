@@ -699,3 +699,42 @@
 ##     -message: "Callback runtime fix applied; live Meta testing remains intentionally skipped unless required by system verification."
 ##     -agent: "testing"
 ##     -message: "Meta Embedded Signup runtime error fix testing COMPLETE - ALL TESTS PASSED. VERIFIED: (1) No 'asyncfunction' runtime error detected - the reported error is completely fixed. (2) Connect with Meta Embedded Signup button is visible, enabled, and properly rendered. (3) Embedded config API confirms Meta app is configured (configured=true). (4) Facebook SDK loaded and initialized correctly. (5) Callback structure verified as synchronous using void operator to invoke async function. (6) No page errors or critical console errors. (7) Live Meta OAuth popup NOT triggered per user request. The fix is production-ready - the synchronous callback pattern prevents the Facebook SDK from throwing the 'Expression is of type asyncfunction, not function' error."
+## user_feedback:
+##     -agent: "user"
+##     -message: "Reported five WhatsApp issues: sent messages appear only after reload; sending sometimes looks like a page auto-reload; conversations appear in Preview but not published; previous WhatsApp chats are missing; manual and Embedded Signup connection flows need visible loading states. User clarified previous chats means history that existed in WhatsApp before connecting, should not be imported/stored; after disconnecting WhatsApp, conversations should no longer appear. Published URL: https://whatsapp-bot-import.emergent.host/"
+## backend:
+##   - task: "Published origin access, incoming message metadata, tenant conversation cleanup on disconnect"
+##     implemented: true
+##     working: "PARTIAL"
+##     file: "backend/.env, backend/routers/integrations.py, backend/routers/inbox.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "PARTIAL"
+##         -agent: "main"
+##         -comment: "Added published origin to CORS_ORIGINS and restarted backend; added incoming WhatsApp message ID persistence, tenant-scoped message/customer reads, and disconnect cleanup that removes the tenant's conversations/messages while preserving non-chat order/audit records. WhatsApp Cloud API cannot backfill pre-connection chat history; only webhook events received after connection are available."
+## frontend:
+##   - task: "Live conversation refresh, send stability, and WhatsApp connection loading"
+##     implemented: true
+##     working: "PENDING"
+##     file: "frontend/src/components/bits.jsx, frontend/src/pages/Conversations.jsx, frontend/src/pages/WhatsApp.jsx"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##         -working: "PENDING"
+##         -agent: "main"
+##         -comment: "Changed useFetch reloads to preserve loaded screens, added optimistic sent-message insertion plus sending state, five-second conversation refresh for inbound messages, and visible manual/Embedded Signup connection spinners with duplicate-click prevention. Frontend lint passes and webpack compiles."
+## test_plan:
+##     current_focus:
+##         - "Verify sending does not blank/reload page and message appears immediately"
+##         - "Verify five-second conversation polling displays webhook messages without manual reload"
+##         - "Verify published origin access/CORS and connection loading UI"
+##         - "Verify disconnect removes tenant conversations and no pre-connection WhatsApp history is claimed/imported"
+##     stuck_tasks: []
+##     test_all: false
+##     test_priority: "high_first"
+##     agent_communication:
+##     -agent: "main"
+##     -message: "Local fixes for send refresh, polling, incoming IDs, CORS published origin, and disconnect cleanup are complete. Backend testing is required first, then frontend verification."

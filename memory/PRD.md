@@ -77,3 +77,14 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Live Meta activation is **NOT CONFIGURED** until the platform owner provides `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, and `META_VERIFY_TOKEN` in backend secrets and completes Meta app/webhook setup.
 - `EMERGENT_LLM_KEY` is configured server-side; GPT-5.4 playground verification is working.
 - Frontend fail-closed behavior is verified: missing Meta platform config shows the warning, hides Embedded Signup, and keeps manual fields available.
+
+## 2026-02 — Conversations UX + AI Persona Hardening
+- Inbox thread auto-scrolls to the latest message; jump-to-bottom on thread switch, smooth-scroll on new message arrival.
+- WhatsApp-style read-receipt ticks on outbound messages: `queued` → single grey ✓, `sent` → single ✓, `delivered` → double ✓, `read` → double blue ✓, `failed` → red label. Driven by Meta status webhook updates on `messages.status`.
+- Unread highlighting in conversation list: soft green row background, bold customer name, unread count badge (99+ cap). `unread_count` is atomically `$inc`'d on inbound webhook and reset on `GET /api/conversations/{cid}`, which also stamps `read_by_human_at` on previously unread inbound messages.
+- Auto-handover: configurable `ai_settings.auto_handover_seconds` (default 30, range 0–3600; 0 disables). When a conversation is HUMAN_ACTIVE past the timeout without a human reply and has unread inbound, a background sweep on inbox polls flips it back to AI_ACTIVE and triggers an AI reply with full history.
+- Return-to-AI: `POST /api/conversations/{cid}/return-to-ai` now background-schedules an AI response when the last message is inbound, so customers aren't left hanging when the human hands the chat back.
+- Shared helper `services/conversation_ai.generate_and_send_ai_reply` centralises history-building, tool loop, sanitisation, and WhatsApp send. Uses conditional Mongo update (`mode=AI_ACTIVE`) to avoid stomping a concurrent takeover.
+- AI persona: system prompt rewritten with strict rules — NO emojis, NO markdown/asterisks/underscores/backticks, formal professional tone, and defined behaviour for abusive customers (stay calm, brief, escalate via `request_human_attention`). A defence-in-depth output-layer `sanitize_reply` strips emojis (Unicode categories So/Sk), markdown emphasis, and stray underscores while preserving URLs, IDs, and multilingual text.
+- Merchant setting UI: new "Auto-return to AI" input on the AI Agent page.
+- Tests: 22 new backend tests in `tests/test_conversations_ai_features.py`, all passing.

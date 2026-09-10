@@ -1,0 +1,38 @@
+{
+  "summary": "Backend-only regression + feature verification of the 6 Conversations UI/AI fixes. Created /app/backend/tests/test_conversations_ai_features.py (22 tests, all passing). Covered: (1) GET/PUT /api/ai-settings with auto_handover_seconds default + range 0..3600 validation, (2) POST /takeover sets HUMAN_ACTIVE + ISO takeover_at, (3) POST /return-to-ai unsets takeover_at + returns 200 even when LLM path short-circuits, (4) GET /api/conversations/{cid} resets unread_count and stamps read_by_human_at on inbound messages, (5) list endpoint exposes unread_count after direct DB inbound insert (webhook simulated via DB write since signature enforcement is on), (6) auto-handover sweep flips HUMAN_ACTIVE->AI_ACTIVE when takeover_at older than timeout and unread_count>0, (7) sanitize_reply strips emojis / *, `, and stray _ while preserving URLs and multilingual text, (8) _build_system_prompt contains 'NEVER use emojis' and 'NEVER use markdown formatting', (9) regression on login, conversations list/get, ai-settings, business-rules.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/conversations (auto-handover sweep)", "issue": "Sweep is scheduled as a FastAPI BackgroundTask on every inbox poll. On a busy inbox this repeats the same query per request; consider debouncing (e.g., run at most every N seconds per merchant) or moving to a periodic task."},
+      {"endpoint": "routers/inbox.py::_auto_handover_sweep", "issue": "The 'skip if human replied after takeover' guard compares `created_at` (ISO string) with `conv.get('takeover_at', '')`. If a legacy conversation stored takeover_at as a datetime (older data), the string comparison against a datetime will raise. Safe today because all writes now use iso_now(), but worth a defensive isinstance check."},
+      {"endpoint": "services/conversation_ai.generate_and_send_ai_reply", "issue": "After sending, it sets mode=AI_ACTIVE unconditionally. If a human takes over in the tiny window between selection and insert, this could stomp the human mode. Consider a conditional update (only set AI_ACTIVE if still AI_ACTIVE)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_conversations_ai_features.py",
+    "/app/test_reports/pytest/conversations_ai_features.xml"
+  ],
+  "action_items": [
+    "Optional: debounce _auto_handover_sweep so it doesn't run on every inbox poll.",
+    "Optional: harden takeover_at type handling in the sweep (accept both str and datetime).",
+    "Optional: make generate_and_send_ai_reply's final mode update conditional on current mode still being AI_ACTIVE to avoid stomping a concurrent takeover."
+  ],
+  "critical_code_review_comments": [
+    "sanitize_reply correctly uses Unicode categories So/Sk for emojis and a boundary-aware regex for underscores that preserves URLs and IDs (verified with https://example.com/path_to_item?id=abc_123).",
+    "System prompt persona rules are explicit and testable (both 'NEVER use emojis' and 'NEVER use markdown formatting' strings assertable).",
+    "AISettingsUpdate uses Field(ge=0, le=3600) — validation returns 422 for both -1 and 3601 as expected.",
+    "unread_count increment happens atomically via $inc in the webhook handler; GET conversation resets it and marks read_by_human_at with a single update_many. Serialisation via database.serialize strips _id correctly.",
+    "return-to-ai correctly short-circuits when LLM is not connected (generate_and_send_ai_reply returns {reason:'llm_not_connected'}) and still returns 200 with mode=AI_ACTIVE."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_conversations_ai_features.py (new)"
+  ],
+  "success_rate": {"backend": "100% (22/22 new tests)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "techgear008@gmail.com / TechGear#2026 (owner) — verified working.",
+  "seed_data_creation": "Test-only conversations/messages prefixed 'TEST_qa'. Dedicated sweep conversation is deleted at end of test; other TEST_qa inbound messages are cleaned via _cleanup_test_messages fixture teardown for TestTakeoverReturnToAI. A few TEST_qa messages inserted into the seeded conversation for read-receipt/unread listing tests remain in DB (harmless, marked TEST_qa) — can be deleted with db.messages.delete_many({'body': {'$regex': '^TEST_qa'}}).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The new suite lives at /app/backend/tests/test_conversations_ai_features.py and runs cleanly under the existing pytest.ini (-n 2 --dist loadscope) in ~14s. It imports backend modules directly (services.ai_agent) so it injects MONGO_URL/DB_NAME/EMERGENT_LLM_KEY into os.environ from /app/backend/.env before import. The dedicated sweep test creates and cleans up its own conversation to avoid cross-worker races. EMERGENT_LLM_KEY was present in .env during this run, so return-to-ai actually triggers the background AI reply; if the key is later removed, the return-to-ai test still passes because the helper short-circuits with reason='llm_not_connected'.",
+  "rca_of_the_issue": "N/A — no functional bugs found. Initial local test failure of the sweep test was a race between two xdist workers touching the same seeded conversation; fixed by isolating the sweep test to a dedicated conversation."
+}

@@ -11,6 +11,7 @@ export default function WhatsApp() {
   const [form, setForm] = useState({ waba_id: "", phone_number_id: "", display_phone_number: "", access_token: "" });
   const [signupAssets, setSignupAssets] = useState({});
   const [signupBusy, setSignupBusy] = useState(false);
+  const [manualBusy, setManualBusy] = useState(false);
 
   useEffect(() => {
     if (!embed?.configured) return undefined;
@@ -79,12 +80,14 @@ export default function WhatsApp() {
 
   const connect = async () => {
     for (const k of Object.keys(form)) if (!form[k]) return toast.error("All fields required");
+    setManualBusy(true);
     try {
       await api.post("/integrations/whatsapp/connect", form);
       toast.success("WhatsApp connected");
       setForm({ waba_id: "", phone_number_id: "", display_phone_number: "", access_token: "" });
       reload();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "WhatsApp validation failed"); reload(); }
+    finally { setManualBusy(false); }
   };
   const validate = async () => {
     try { await api.post("/integrations/whatsapp/validate"); toast.success("WhatsApp credentials are valid"); reload(); }
@@ -93,6 +96,7 @@ export default function WhatsApp() {
   const disconnect = async () => { await api.post("/integrations/whatsapp/disconnect"); reload(); };
 
   const wa = data?.whatsapp;
+  const isConnecting = signupBusy || manualBusy || wa?.status === "connecting";
   const statusLabel = wa?.status === "connecting" ? "Connecting" : wa?.status === "error" ? "Error" : wa?.connected ? "Connected" : "Not connected";
   return (
     <>
@@ -120,8 +124,9 @@ export default function WhatsApp() {
                 </div>
               )}
               {wa?.last_error && <div className="text-xs bg-red-50 border border-red-200 text-red-800 rounded-md p-3 mb-4">{wa.last_error}</div>}
+              {isConnecting && <div role="status" className="flex items-center gap-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-3 mb-4 text-sm text-primary"><span className="h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" /> <span>{signupBusy ? "Opening Meta Embedded Signup…" : "Validating WhatsApp connection…"}<span className="block text-xs text-muted-foreground mt-0.5">Keep this window open while the connection is completed.</span></span></div>}
               {embed?.configured && (
-                <button data-testid="wa-embedded-connect" onClick={launchEmbeddedSignup} disabled={signupBusy || wa?.status === "connecting"} className="w-full h-10 mb-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-60">{signupBusy || wa?.status === "connecting" ? "Connecting…" : "Connect with Meta Embedded Signup"}</button>
+                <button data-testid="wa-embedded-connect" onClick={launchEmbeddedSignup} disabled={isConnecting} className="w-full h-10 mb-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-60">{signupBusy ? "Opening Meta…" : "Connect with Meta Embedded Signup"}</button>
               )}
 
               {wa?.connected ? (
@@ -138,7 +143,7 @@ export default function WhatsApp() {
                   <Input label="Phone Number ID" value={form.phone_number_id} onChange={(e) => setForm({ ...form, phone_number_id: e.target.value })} testid="wa-phone-id" />
                   <Input label="Display phone number" value={form.display_phone_number} onChange={(e) => setForm({ ...form, display_phone_number: e.target.value })} testid="wa-display" placeholder="+92 300 …" />
                   <Input label="Access token" type="password" value={form.access_token} onChange={(e) => setForm({ ...form, access_token: e.target.value })} testid="wa-token" placeholder="Stored encrypted" />
-                  <button data-testid="wa-connect" onClick={connect} className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90">Connect WhatsApp</button>
+                  <button data-testid="wa-connect" onClick={connect} disabled={isConnecting} className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-60">{manualBusy ? "Validating…" : "Connect WhatsApp"}</button>
                 </div>
               )}
             </div>

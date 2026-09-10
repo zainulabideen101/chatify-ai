@@ -73,6 +73,16 @@ export default function AIAgent() {
                 <span>Max discount (%)</span>
                 <input data-testid="max-discount" type="number" defaultValue={settings.max_discount_percent} onBlur={(e) => patch({ max_discount_percent: Number(e.target.value) })} className="w-20 h-8 px-2 rounded-md border border-input text-sm tnum" />
               </div>
+              <div className="flex items-center justify-between text-sm gap-3">
+                <div>
+                  <div>Auto-return to AI</div>
+                  <div className="text-[11px] text-muted-foreground">If human doesn't reply within this many seconds after taking over, chat auto-reverts to AI. Set to 0 to disable.</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <input data-testid="auto-handover-seconds" type="number" min="0" max="3600" defaultValue={settings.auto_handover_seconds ?? 30} onBlur={(e) => patch({ auto_handover_seconds: Number(e.target.value) })} className="w-20 h-8 px-2 rounded-md border border-input text-sm tnum" />
+                  <span className="text-xs text-muted-foreground">sec</span>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-6">

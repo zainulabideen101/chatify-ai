@@ -171,9 +171,13 @@ async def whatsapp_connect(payload: WhatsAppConnectRequest, tid: str = Depends(g
 
 @router.post("/whatsapp/disconnect")
 async def whatsapp_disconnect(tid: str = Depends(get_tenant_id)):
-    await db.whatsapp_connections.delete_one({"merchant_id": ObjectId(tid)})
-    await log_action(tid, "whatsapp_disconnected", actor="merchant")
-    return {"ok": True}
+    oid = ObjectId(tid)
+    conversation_ids = [doc["_id"] async for doc in db.conversations.find({"merchant_id": oid}, {"_id": 1})]
+    await db.messages.delete_many({"merchant_id": oid})
+    await db.conversations.delete_many({"merchant_id": oid})
+    await db.whatsapp_connections.delete_one({"merchant_id": oid})
+    await log_action(tid, "whatsapp_disconnected", actor="merchant", detail={"conversations_removed": len(conversation_ids)})
+    return {"ok": True, "conversations_removed": len(conversation_ids)}
 
 
 @router.get("/whatsapp/embedded-config")
@@ -318,9 +322,11 @@ async def _process_whatsapp_inbound(payload: dict):
                     await db.messages.insert_one({
                         "conversation_id": conv["_id"], "merchant_id": mid, "direction": "inbound",
                         "sender": "customer", "body": message_body, "status": "received", "message_type": message_type,
-                        "whatsapp_media_id": (image_payload or {}).get("id"), "created_at": iso_now()})
+                        "whatsapp_message_id": msg.get("id"), "whatsapp_media_id": (image_payload or {}).get("id"), "created_at": iso_now()})
                     await db.conversations.update_one({"_id": conv["_id"]},
-                        {"$set": {"last_message": message_body, "last_message_at": iso_now()}})
+                        {"$set": {"last_message": message_body, "last_message_at": iso_now(),
+                                  "last_inbound_at": iso_now()},
+                         "$inc": {"unread_count": 1}})
 
                     usage = await record_unique_chat(str(mid), from_phone)
                     if text and is_cancellation_request(text):
