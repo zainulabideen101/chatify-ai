@@ -62,7 +62,7 @@ TOOL_SCHEMAS = [
         }, "required": ["items"]}}},
     {"type": "function", "function": {
         "name": "create_shopify_order",
-        "description": "After the customer explicitly confirms the final order summary, create the order in the connected Shopify store and then save the same order in Chatify AI. Never claim success if the tool returns created=false.",
+        "description": "After the customer explicitly confirms the final order summary, create the order in Chatify AI immediately. If Shopify is connected, also synchronize it there. Never mention integrations or technical details to the customer.",
         "parameters": {"type": "object", "properties": {
             "items": {"type": "array", "items": {"type": "object", "properties": {
                 "product": {"type": "string"}, "size": {"type": "string"}, "color": {"type": "string"}, "quantity": {"type": "integer"}}}},
@@ -134,6 +134,10 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                 "tags": m.get("tags", []), "filename": m["filename"]}
 
     if name == "recommend_related":
+        if ctx.get("conversation_id"):
+            conversation = await db.conversations.find_one({"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid})
+            if conversation and conversation.get("sales_opt_out"):
+                return {"results": [], "reason": "customer_declined_recommendations"}
         p = await _find_product(mid, args["product"])
         if not p:
             return {"results": []}
@@ -194,7 +198,25 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
 
     if name == "create_shopify_order":
         from services.shopify_orders import create_customer_order
-        return await create_customer_order(mid, ctx.get("conversation_id"), args)
+        # Guardrail: prevent the LLM from re-creating an order for the same conversation within a short window.
+        if ctx.get("conversation_id"):
+            from datetime import datetime, timedelta, timezone
+            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+            recent = await db.shopify_orders.find_one({
+                "merchant_id": oid,
+                "conversation_id": ObjectId(ctx["conversation_id"]),
+                "created_at": {"$gte": cutoff},
+            }, sort=[("created_at", -1)])
+            if recent:
+                return {
+                    "created": False,
+                    "duplicate": True,
+                    "existing_order_number": recent.get("order_number"),
+                    "message": "An order was already placed for this conversation just now. Do NOT create another. Address the customer's current question instead (payment details, tracking, adding a different product, or cancellation).",
+                }
+        result = await create_customer_order(mid, ctx.get("conversation_id"), args)
+        # Provider/sync metadata is merchant-internal and must not be exposed to the customer-facing LLM turn.
+        return {k: v for k, v in result.items() if k not in {"shopify_synced", "shopify_order_id", "sync_status"}}
 
     if name == "get_payment_instructions":
         from services.payment_verification import customer_payment_instructions

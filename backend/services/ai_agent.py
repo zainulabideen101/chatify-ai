@@ -14,6 +14,7 @@ from typing import Callable, Optional
 from bson import ObjectId
 
 from database import db
+from models import iso_now
 from services.ai_tools import TOOL_SCHEMAS, dispatch
 
 
@@ -129,6 +130,37 @@ def sanitize_reply(text: str) -> str:
     return cleaned.strip()
 
 
+
+_SALES_REFUSAL_PATTERN = re.compile(
+    r"\b(no thanks|not interested|no need|don't need|do not need|don't want|do not want|that's all|bas itna|bas itni|nahi chahiye|nahin chahiye|nahi lena|nahin lena)\b",
+    re.IGNORECASE,
+)
+
+
+async def note_sales_refusal(merchant_id: str, conversation_id: str, customer_message: str) -> bool:
+    """Persist a customer's refusal so future turns cannot re-trigger recommendations."""
+    if not _SALES_REFUSAL_PATTERN.search(customer_message or ""):
+        return False
+    oid = ObjectId(merchant_id)
+    previous = await db.messages.find_one(
+        {"conversation_id": ObjectId(conversation_id), "merchant_id": oid, "direction": "outbound"},
+        sort=[("created_at", -1)],
+    )
+    if not previous:
+        return False
+    await db.conversations.update_one(
+        {"_id": ObjectId(conversation_id), "merchant_id": oid},
+        {"$set": {"sales_opt_out": True, "sales_opt_out_at": iso_now()}},
+    )
+    conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": oid})
+    if conversation and conversation.get("customer_id"):
+        await db.customers.update_one(
+            {"_id": conversation["customer_id"], "merchant_id": oid},
+            {"$set": {"sales_opt_out": True, "sales_opt_out_at": iso_now()}},
+        )
+    return True
+
+
 class AIAgentService:
     def __init__(self):
         self.tools = ToolRegistry()
@@ -158,7 +190,9 @@ PERSONA AND TONE (STRICT — NEVER BREAK):
 - Always stay polite, formal, and professional. Address customers respectfully (e.g., "Sir", "Ma'am", "Ap" in Urdu).
 - NEVER use emojis of any kind (no faces, hearts, hands, stars, checkmarks — nothing). Plain text only.
 - NEVER use markdown formatting. No asterisks (*), no underscores (_), no backticks, no bullet dashes, no bold/italic markers. Write in plain sentences.
-- Keep replies short and WhatsApp-appropriate. Ask ONE question at a time.
+- Keep replies concise and WhatsApp-appropriate. By default return one message. Only when separate required steps genuinely need separate WhatsApp messages, place the exact marker [[MESSAGE_BREAK]] between them; never use it for ordinary paragraph spacing.
+- Ask ONE question at a time when a question is needed.
+- If the customer asks for payment details again, do not repeat the entire previous payment message verbatim. Give a concise reminder or answer only the missing detail, then ask for the receipt screenshot when appropriate.
 - If a customer is rude, abusive, uses profanity, or insults you, DO NOT match their tone, DO NOT apologise for their behaviour, and DO NOT get defensive. Stay calm and courteous. Respond briefly and professionally (e.g., "I understand your frustration. Let me help you resolve this. Could you please share your order number?"). If abuse continues or the customer demands a human, call request_human_attention immediately.
 - Never argue with the customer. Never make jokes. Never use slang like "bro", "yaar", "bhai" unless the customer used it first and even then keep it minimal and respectful.
 
@@ -173,8 +207,10 @@ HARD RULES (never break):
 - Use find_product_media when the customer asks for a photo/pic/video. Only claim a media is a "real photo" if its tags say so.
 - Use search_knowledge_base before answering policy questions (returns, shipping, warranty, sizes).
 - Use validate_address before accepting a delivery address; if incomplete, ask for exactly the missing parts.
-- Before any order, use build_order_summary and show the customer the summary, then ask for explicit confirmation. After explicit confirmation, call create_shopify_order with the confirmed items/address/payment method. Only say the order is placed when the tool returns created=true; if it returns created=false, explain that Shopify connection or catalog sync is required and do not invent an order number.
-- If the customer wants online bank-transfer payment, call get_payment_instructions, send the returned bank details naturally, and ask them to send a clear screenshot after transferring. Never say payment is confirmed from a message alone.
+- Before any order, use build_order_summary and show the customer the summary, then ask for explicit confirmation. After explicit confirmation, call create_shopify_order with the confirmed items/address/payment method. This tool always creates the confirmed order in Chatify AI first. Only say the order is placed when the tool returns created=true. If the tool returns created=false, explain only that the order details need clarification; never mention Shopify, connections, catalog sync, integrations, or technical system details.
+- DUPLICATE ORDERS ARE FORBIDDEN. If you can see in the conversation above that you already replied with an order confirmation (any message containing "Order number", "CFY-", or "order place ho gaya"), the order is DONE. Do NOT call create_shopify_order or create_draft_order again. Answer the customer's actual new question (payment details, shipping status, adding a different product, cancellation, etc.). Only create a brand new order if the customer clearly asks for an ADDITIONAL, DIFFERENT order and explicitly confirms it.
+- READ THE LATEST CUSTOMER MESSAGE CAREFULLY AND RESPOND TO IT. If they ask for payment details, use get_payment_instructions and share only the payment details. If they ask about a different product, use search_products / check_variant_availability first. Never repeat your previous reply just because the previous topic was an order.
+- Never tell customers what platform integrations are connected, disconnected, synced, or unavailable. Those are internal merchant details. When an order is created locally, speak about it exactly like any other placed order.
 - If you are unsure, the request is a complaint/refund, the customer is abusive, or the customer explicitly asks for a human, call request_human_attention.
 
 MERCHANT RULES ("Teach your AI"):
@@ -193,15 +229,31 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND -> HEL
         from emergentintegrations.llm.chat import LlmChat, UserMessage
 
         system = await self._build_system_prompt(merchant_id)
-        if history:
-            transcript = "\n".join(
-                f"{'Customer' if m['role'] == 'user' else 'You'}: {m['content']}"
-                for m in history[-12:]
-            )
-            system += f"\n\nCONVERSATION SO FAR:\n{transcript}"
+        if conversation_id:
+            conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": ObjectId(merchant_id)})
+            if conversation and conversation.get("sales_opt_out"):
+                system += "\n\nCUSTOMER SALES OPT-OUT (ABSOLUTE): This customer has declined a recommendation. Never cross-sell, upsell, recommend related products, or ask whether they want anything else. Only answer the exact request."
 
-        session = conversation_id or f"pg-{merchant_id}"
-        chat = (LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=session, system_message=system)
+        # Seed the chat with the full recent dialog as ACTUAL user/assistant turns so the
+        # model can see its own prior replies (including confirmations that an order was
+        # already placed) and never re-trigger the same tool calls or repeat the same reply.
+        initial_messages: list[dict] = [{"role": "system", "content": system}]
+        if history:
+            for turn in history[-20:]:
+                role = turn.get("role")
+                content = (turn.get("content") or "").strip()
+                if role in ("user", "assistant") and content:
+                    initial_messages.append({"role": role, "content": content})
+
+        # A unique session_id per turn keeps every invocation stateless on the library side;
+        # the conversational memory is fully owned by us via initial_messages above.
+        import uuid
+        session = f"{conversation_id or f'pg-{merchant_id}'}-{uuid.uuid4().hex[:8]}"
+        chat = (LlmChat(
+                    api_key=os.environ["EMERGENT_LLM_KEY"],
+                    session_id=session,
+                    system_message=system,
+                    initial_messages=initial_messages)
                 .with_model("openai", "gpt-5.4")
                 .with_tools(TOOL_SCHEMAS, tool_choice="auto"))
 

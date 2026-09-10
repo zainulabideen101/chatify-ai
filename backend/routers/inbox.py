@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from database import db, serialize, serialize_list
 from deps import get_tenant_id
 from models import SendMessageRequest, iso_now
-from services.whatsapp_service import whatsapp_service, WhatsAppNotConfigured
+from services.whatsapp_service import whatsapp_service
 from services.ai_agent import ai_agent
 from services.conversation_ai import generate_and_send_ai_reply
 from audit import log_action
@@ -167,8 +167,15 @@ async def send_message(cid: str, payload: SendMessageRequest, tid: str = Depends
             msg["status"] = "sent"
             msg["whatsapp_message_id"] = ((send_result.get("messages") or [{}])[0]).get("id")
             delivery["delivered"] = True
-    except WhatsAppNotConfigured as e:
-        delivery["error"] = str(e)
+    except Exception as exc:
+        error_text = str(exc)[:500]
+        msg["status"] = "failed"
+        msg["delivery_error"] = error_text
+        delivery["error"] = "Delivery failed. Please check the WhatsApp connection."
+        if conn and ("401" in error_text or "190" in error_text or "token" in error_text.lower()):
+            await db.whatsapp_connections.update_one(
+                {"_id": conn["_id"], "merchant_id": _oid(tid)},
+                {"$set": {"status": "error", "last_error": error_text[:240], "updated_at": iso_now()}})
 
     res = await db.messages.insert_one(msg)
     await db.conversations.update_one({"_id": ObjectId(cid)},

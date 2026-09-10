@@ -8,7 +8,8 @@ from database import db, serialize, serialize_list
 from deps import get_tenant_id
 from models import MediaCreate, PaymentReviewDecision, iso_now
 from services.commerce import address_validator, cod_assessor
-from services.whatsapp_service import whatsapp_service, WhatsAppNotConfigured
+from services.whatsapp_service import whatsapp_service
+from services.shopify_service import ShopifyAPIError, ShopifyNotConfigured, shopify_service
 from audit import log_action
 
 router = APIRouter(prefix="/api", tags=["commerce"])
@@ -127,7 +128,7 @@ async def get_order(order_id: str, tid: str = Depends(get_tenant_id)):
 @router.get("/payment-review")
 async def payment_review_queue(tid: str = Depends(get_tenant_id)):
     docs = await db.shopify_orders.find({
-        "merchant_id": _oid(tid), "payment_verification_status": "review_required",
+        "merchant_id": _oid(tid), "payment_verification_status": {"$in": ["review_required", "ai_marked_paid_screenshot"]},
     }).sort("payment_verified_at", -1).limit(200).to_list(200)
     return [_safe_order(doc) for doc in docs]
 
@@ -150,7 +151,7 @@ async def review_payment(order_id: str, payload: PaymentReviewDecision, tid: str
     order = await db.shopify_orders.find_one({"_id": ObjectId(order_id), "merchant_id": oid})
     if not order:
         raise HTTPException(404, "Order not found")
-    if order.get("payment_verification_status") != "review_required":
+    if order.get("payment_verification_status") not in {"review_required", "ai_marked_paid_screenshot"}:
         raise HTTPException(400, "This order is not waiting for payment review")
     now = iso_now()
     approved = payload.decision == "approve"
@@ -171,13 +172,33 @@ async def review_payment(order_id: str, payload: PaymentReviewDecision, tid: str
             {"_id": order["conversation_id"], "merchant_id": oid},
             {"$set": {"payment_review_status": "approved" if approved else "rejected", "needs_attention": False}},
         )
+    # Update the connected Shopify order without blocking the local review decision.
+    shopify_sync = "not_available"
+    shopify_sync_error = None
+    connection = await db.shopify_connections.find_one({"merchant_id": oid})
+    if connection and connection.get("access_token_enc") and order.get("shopify_order_id") and shopify_service.configured:
+        try:
+            await shopify_service.update_payment_review(
+                connection["shop_domain"], connection["access_token_enc"],
+                order["shopify_order_id"], approved, float(order.get("total") or 0),
+                payload.note or "Payment screenshot reviewed by seller.")
+            shopify_sync = "synced"
+        except (ShopifyNotConfigured, ShopifyAPIError) as exc:
+            shopify_sync = "sync_pending"
+            shopify_sync_error = str(exc)[:240]
+    elif connection and order.get("shopify_order_id"):
+        shopify_sync = "not_configured"
+    await db.shopify_orders.update_one(
+        {"_id": order["_id"], "merchant_id": oid},
+        {"$set": {"shopify_payment_sync_status": shopify_sync, "shopify_payment_sync_error": shopify_sync_error}},
+    )
+
     customer = await db.customers.find_one({"_id": order.get("customer_id"), "merchant_id": oid})
     conversation = None
     if order.get("conversation_id"):
         conversation = await db.conversations.find_one({"_id": order["conversation_id"], "merchant_id": oid})
     if not conversation and customer:
         conversation = await db.conversations.find_one({"merchant_id": oid, "customer_id": customer["_id"]}, sort=[("last_message_at", -1)])
-    connection = await db.whatsapp_connections.find_one({"merchant_id": oid})
     notification = "not_sent"
     notification_text = (
         f"Your payment for order #{order.get('order_number')} has been verified and your order is now being processed."
@@ -185,21 +206,24 @@ async def review_payment(order_id: str, payload: PaymentReviewDecision, tid: str
         "We could not verify the payment screenshot for your order. Please send a clearer screenshot or contact us for help."
     )
     if connection and customer and customer.get("phone"):
+        notification_message = {
+            "conversation_id": conversation["_id"] if conversation else None,
+            "merchant_id": oid, "direction": "outbound", "sender": "human",
+            "body": notification_text, "status": "failed", "created_at": now,
+        }
         try:
             sent = await whatsapp_service.send_text(connection, customer["phone"], notification_text)
             notification = "sent"
-            if conversation:
-                await db.messages.insert_one({
-                    "conversation_id": conversation["_id"], "merchant_id": oid, "direction": "outbound",
-                    "sender": "human", "body": notification_text, "status": "sent",
-                    "whatsapp_message_id": ((sent.get("messages") or [{}])[0]).get("id"), "created_at": now,
-                })
-        except (WhatsAppNotConfigured, Exception):
+            notification_message.update({"status": "sent", "whatsapp_message_id": ((sent.get("messages") or [{}])[0]).get("id")})
+        except Exception as exc:
             notification = "failed"
+            notification_message["delivery_error"] = str(exc)[:500]
+        if conversation:
+            await db.messages.insert_one(notification_message)
     await log_action(tid, "payment_review_decided", actor="human", resource_id=order_id,
-                     detail={"decision": payload.decision, "notification": notification})
+                     detail={"decision": payload.decision, "notification": notification, "shopify_sync": shopify_sync})
     updated = await db.shopify_orders.find_one({"_id": order["_id"], "merchant_id": oid})
-    return {"order": _safe_order(updated), "notification": notification}
+    return {"order": _safe_order(updated), "notification": notification, "shopify_sync": shopify_sync}
 
 # ---------- Abandoned orders ----------
 @router.get("/abandoned-orders")

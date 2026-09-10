@@ -92,10 +92,12 @@ async def verify_payment_screenshot(merchant_id: str, conversation_id: str, imag
     conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": oid})
     if not conversation:
         return {"decision": "review_required", "customer_message": "Thanks, our team will review the payment proof."}
-    order = await db.shopify_orders.find_one(
-        {"merchant_id": oid, "customer_id": conversation.get("customer_id"), "payment_status": {"$ne": "paid"}},
-        sort=[("created_at", -1)],
-    )
+    order_query = {"merchant_id": oid, "payment_status": {"$ne": "paid"}}
+    if conversation.get("customer_id"):
+        order_query["customer_id"] = conversation["customer_id"]
+    else:
+        order_query["conversation_id"] = conversation["_id"]
+    order = await db.shopify_orders.find_one(order_query, sort=[("created_at", -1)])
     UPLOAD_ROOT.joinpath(str(oid)).mkdir(parents=True, exist_ok=True)
     filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}.bin"
     path = UPLOAD_ROOT / str(oid) / filename
@@ -111,12 +113,14 @@ async def verify_payment_screenshot(merchant_id: str, conversation_id: str, imag
     amount = result.get("amount_pkr")
     amount_matches = isinstance(amount, (int, float)) and abs(float(amount) - float(expected["total"])) <= 1
     account_matches = bool(result.get("recipient_matches_expected"))
-    approved = bool(result.get("receipt_visible") and result.get("paid") and confidence >= 0.9 and amount_matches and account_matches)
-    decision = "ai_marked_paid_screenshot" if approved else "review_required"
+    ai_recommended = bool(result.get("receipt_visible") and result.get("paid") and confidence >= 0.9 and amount_matches and account_matches)
+    # AI recommends; the seller remains the final payment approver.
+    decision = "review_required"
     now = datetime.now(timezone.utc).isoformat()
     update = {
         "payment_verification_status": decision,
-        "payment_verification_label": "AI marked as paid using customer screenshot" if approved else "Payment review required",
+        "payment_verification_label": "Payment review required",
+        "payment_ai_recommendation": "approve" if ai_recommended else "review",
         "payment_verification_confidence": confidence,
         "payment_verification_reasons": result.get("reasons", []),
         "payment_screenshot_path": str(path),
@@ -128,12 +132,13 @@ async def verify_payment_screenshot(merchant_id: str, conversation_id: str, imag
         "payment_transaction_date": result.get("transaction_date"),
         "payment_recipient_account": result.get("recipient_account"),
     }
-    if approved:
-        update.update({"payment_status": "paid", "payment_verified_by": "ai", "payment_method": "BANK_TRANSFER"})
-    else:
-        await db.conversations.update_one({"_id": conversation["_id"], "merchant_id": oid}, {"$set": {"needs_attention": True, "payment_review_status": "review_required"}})
+    await db.conversations.update_one(
+        {"_id": conversation["_id"], "merchant_id": oid},
+        {"$set": {"needs_attention": True, "payment_review_status": "review_required"}},
+    )
     await db.shopify_orders.update_one({"_id": order["_id"], "merchant_id": oid}, {"$set": update})
-    await log_action(merchant_id, "payment_screenshot_verified", actor="ai", resource_id=str(order["_id"]), detail={"decision": decision, "confidence": confidence, "amount_matches": amount_matches, "account_matches": account_matches})
-    if approved:
-        return {"decision": decision, "label": update["payment_verification_label"], "customer_message": "Thanks, we received your payment screenshot and your order is now being processed."}
-    return {"decision": decision, "label": update["payment_verification_label"], "customer_message": "Thanks, we received your payment screenshot. Our team will review the payment proof shortly."}
+    await log_action(merchant_id, "payment_screenshot_verified", actor="ai", resource_id=str(order["_id"]),
+                     detail={"decision": decision, "ai_recommendation": update["payment_ai_recommendation"],
+                             "confidence": confidence, "amount_matches": amount_matches, "account_matches": account_matches})
+    return {"decision": decision, "label": update["payment_verification_label"],
+            "customer_message": "Thanks, we received your payment screenshot. Our team will review the payment proof shortly."}

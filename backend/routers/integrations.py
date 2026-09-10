@@ -1,21 +1,33 @@
 """Integration connection architecture: Shopify OAuth, WhatsApp/Meta connect, webhooks."""
 import hashlib
 import json
+import logging
 import os
 import secrets
+
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, BackgroundTasks
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+)
 from pydantic import BaseModel, Field
 
-from database import db, serialize
+from audit import log_action
+from database import db
 from deps import get_tenant_id
 from models import ShopifyConnectRequest, WhatsAppConnectRequest, iso_now
-from services.shopify_service import shopify_service, ShopifyNotConfigured
-from services.whatsapp_service import whatsapp_service
-from services.meta_whatsapp import MetaGraphError, meta_whatsapp_service
-from services.crypto import encrypt_secret, decrypt_secret
-from audit import log_action
 from services.billing import record_unique_chat
+from services.crypto import decrypt_secret, encrypt_secret
+from services.meta_whatsapp import MetaGraphError, meta_whatsapp_service
+from services.shopify_service import ShopifyNotConfigured, shopify_service
+from services.whatsapp_service import whatsapp_service
+
+logger = logging.getLogger(__name__)
+
 
 
 class EmbeddedSignupRequest(BaseModel):
@@ -268,9 +280,12 @@ async def _process_whatsapp_inbound(payload: dict):
     """Parse a WhatsApp Cloud API webhook, store the message, and let the AI reply
     when the conversation is AI_ACTIVE and both WhatsApp + LLM are connected.
     """
-    from services.ai_agent import ai_agent, LLMNotConfigured
+    from services.conversation_ai import generate_and_send_ai_reply
     from services.payment_verification import verify_payment_screenshot
-    from services.shopify_orders import is_cancellation_request, cancel_latest_customer_order
+    from services.shopify_orders import (
+        cancel_latest_customer_order,
+        is_cancellation_request,
+    )
     try:
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
@@ -298,14 +313,27 @@ async def _process_whatsapp_inbound(payload: dict):
                     if not text and not image_payload:
                         continue
                     message_body = text or "[Payment screenshot received]"
+                    message_id = msg.get("id")
+                    if message_id and await db.messages.find_one({"merchant_id": mid, "whatsapp_message_id": message_id}, {"_id": 1}):
+                        continue
+                    contact = next((item for item in value.get("contacts", []) if item.get("wa_id") == from_phone), None)
+                    whatsapp_name = ((contact or {}).get("profile") or {}).get("name") or from_phone
+                    profile_picture_url = ((contact or {}).get("profile") or {}).get("picture")
                     customer = await db.customers.find_one({"merchant_id": mid, "phone": from_phone})
                     if not customer:
                         cid_ins = await db.customers.insert_one({
-                            "merchant_id": mid, "name": from_phone, "phone": from_phone,
+                            "merchant_id": mid, "name": whatsapp_name, "whatsapp_name": whatsapp_name,
+                            "profile_picture_url": profile_picture_url, "phone": from_phone,
                             "preferred_language": None, "total_orders": 0, "delivered_orders": 0,
                             "cancelled_orders": 0, "refused_orders": 0, "failed_deliveries": 0,
                             "created_at": iso_now()})
-                        customer = {"_id": cid_ins.inserted_id, "name": from_phone}
+                        customer = {"_id": cid_ins.inserted_id, "name": whatsapp_name, "whatsapp_name": whatsapp_name,
+                                    "profile_picture_url": profile_picture_url}
+                    else:
+                        customer_update = {"whatsapp_name": whatsapp_name}
+                        if profile_picture_url:
+                            customer_update["profile_picture_url"] = profile_picture_url
+                        await db.customers.update_one({"_id": customer["_id"], "merchant_id": mid}, {"$set": customer_update})
                     await db.abandoned_orders.update_many(
                         {"merchant_id": mid, "customer_id": customer["_id"], "status": "abandoned"},
                         {"$set": {"last_customer_reply_at": iso_now()}})
@@ -313,12 +341,17 @@ async def _process_whatsapp_inbound(payload: dict):
                     if not conv:
                         conv_ins = await db.conversations.insert_one({
                             "merchant_id": mid, "customer_id": customer["_id"],
-                            "customer_name": customer.get("name"), "customer_phone": from_phone,
+                            "customer_name": whatsapp_name, "whatsapp_name": whatsapp_name,
+                            "profile_picture_url": profile_picture_url, "customer_phone": from_phone,
                             "mode": "AI_ACTIVE", "needs_attention": False, "ai_resolved": False,
                             "low_confidence": False, "had_human_takeover": False,
                             "conversation_value": 0, "intent": "OTHER",
                             "last_message": message_body, "last_message_at": iso_now(), "created_at": iso_now()})
                         conv = await db.conversations.find_one({"_id": conv_ins.inserted_id})
+                    await db.conversations.update_one(
+                        {"_id": conv["_id"], "merchant_id": mid},
+                        {"$set": {"customer_name": whatsapp_name, "whatsapp_name": whatsapp_name,
+                                  "profile_picture_url": profile_picture_url, "customer_phone": from_phone}})
                     await db.messages.insert_one({
                         "conversation_id": conv["_id"], "merchant_id": mid, "direction": "inbound",
                         "sender": "customer", "body": message_body, "status": "received", "message_type": message_type,
@@ -334,9 +367,9 @@ async def _process_whatsapp_inbound(payload: dict):
                         if cancellation.get("cancelled"):
                             customer_reply = "Your order has been cancelled successfully."
                         elif cancellation.get("code") == "order_not_found":
-                            customer_reply = "I couldn’t find an active order to cancel. Please share your order number so we can check it."
+                            customer_reply = "I could not find an active order to cancel. Please share your order number so we can check it."
                         else:
-                            customer_reply = "I’ve received your cancellation request. A seller will review it because Shopify could not confirm the cancellation yet."
+                            customer_reply = "I have received your cancellation request. Please share your order number so we can check it."
                         try:
                             send_result = await whatsapp_service.send_text(conn, from_phone, customer_reply)
                             await db.messages.insert_one({
@@ -345,19 +378,16 @@ async def _process_whatsapp_inbound(payload: dict):
                                 "whatsapp_message_id": ((send_result.get("messages") or [{}])[0]).get("id"),
                                 "shopify_cancellation": cancellation.get("code") or "cancelled", "created_at": iso_now()})
                         except Exception:
-                            pass
+                            logger.exception("Cancellation response delivery failed for conversation %s", conv["_id"])
                         continue
                     if image_payload:
-                        if conv.get("mode") != "AI_ACTIVE" or not usage["ai_allowed"]:
-                            await db.conversations.update_one(
-                                {"_id": conv["_id"], "merchant_id": mid},
-                                {"$set": {"needs_attention": True, "payment_review_status": "review_required"}})
-                            continue
+                        # Payment evidence must be processed even during human takeover or
+                        # chat-limit pauses; it belongs to the seller's review queue.
                         try:
                             image_bytes, mime_type = await whatsapp_service.download_media(conn, image_payload.get("id"))
                             payment_result = await verify_payment_screenshot(
                                 str(mid), str(conv["_id"]), image_bytes, mime_type, image_payload.get("id"))
-                            customer_reply = payment_result.get("customer_message", "Thanks, we received the payment screenshot.")
+                            customer_reply = payment_result.get("customer_message", "Thanks, we received your payment screenshot. Our team will review the payment proof shortly.")
                             send_result = await whatsapp_service.send_text(conn, from_phone, customer_reply)
                             await db.messages.insert_one({
                                 "conversation_id": conv["_id"], "merchant_id": mid, "direction": "outbound",
@@ -365,43 +395,27 @@ async def _process_whatsapp_inbound(payload: dict):
                                 "whatsapp_message_id": ((send_result.get("messages") or [{}])[0]).get("id"),
                                 "payment_verification": payment_result.get("decision"), "created_at": iso_now()})
                         except Exception as exc:
+                            logger.exception("Payment screenshot processing failed for conversation %s", conv["_id"])
                             await db.conversations.update_one(
                                 {"_id": conv["_id"], "merchant_id": mid},
                                 {"$set": {"needs_attention": True, "payment_review_status": "review_required", "payment_review_error": str(exc)[:240]}})
                         continue
-                    if conv.get("mode") != "AI_ACTIVE" or not ai_agent.llm_connected:
+                    if conv.get("mode") != "AI_ACTIVE":
                         continue
                     if not usage["ai_allowed"]:
                         await db.conversations.update_one(
                             {"_id": conv["_id"], "merchant_id": mid},
                             {"$set": {"needs_attention": True, "ai_paused_reason": "daily_chat_limit"}})
                         continue
-                    prior = await db.messages.find({"conversation_id": conv["_id"]}).sort("created_at", 1).to_list(50)
-                    history = [{"role": "user" if m["direction"] == "inbound" else "assistant",
-                                "content": m["body"]} for m in prior[:-1]]
                     try:
-                        result = await ai_agent.run_agent(str(mid), text, history=history,
-                                                          conversation_id=str(conv["_id"]))
-                    except LLMNotConfigured:
-                        continue
-                    reply = result["reply"]
-                    if reply:
-                        try:
-                            send_result = await whatsapp_service.send_text(conn, from_phone, reply)
-                            status = "sent"
-                            whatsapp_message_id = ((send_result.get("messages") or [{}])[0]).get("id")
-                        except Exception:
-                            status = "queued"
-                            whatsapp_message_id = None
-                        await db.messages.insert_one({
-                            "conversation_id": conv["_id"], "merchant_id": mid, "direction": "outbound",
-                            "sender": "ai", "body": reply, "status": status,
-                            "whatsapp_message_id": whatsapp_message_id,
-                            "tool_trace": result.get("tool_trace"), "created_at": iso_now()})
-                        await db.conversations.update_one({"_id": conv["_id"]},
-                            {"$set": {"last_message": reply, "last_message_at": iso_now()}})
+                        await generate_and_send_ai_reply(mid, conv)
+                    except Exception:
+                        logger.exception("AI reply processing failed for conversation %s", conv["_id"])
+                        await db.conversations.update_one(
+                            {"_id": conv["_id"], "merchant_id": mid},
+                            {"$set": {"needs_attention": True, "ai_reply_error": "AI reply could not be delivered."}})
     except Exception:
-        pass
+        logger.exception("WhatsApp webhook processing failed")
 
 
 @webhook_router.post("/whatsapp")

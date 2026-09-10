@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="7" skipped="0" tests="24" time="5.553" timestamp="2026-09-10T22:30:05.392270+00:00" hostname="agent-env-154e281b-a9d5-43cd-9524-4aec0b9e7331"><testcase classname="tests.test_new_features_iter3.TestSplitReply" name="test_blank_lines_single_message" time="0.328" /><testcase classname="tests.test_new_features_iter3.TestSplitReply" name="test_explicit_marker_splits" time="0.001" /><testcase classname="tests.test_new_features_iter3.TestSplitReply" name="test_empty_returns_empty" time="0.001" /><testcase classname="tests.test_new_features_iter3.TestPaymentRepetitionGuard" name="test_repeat_returns_reminder" time="0.001" /><testcase classname="tests.test_new_features_iter3.TestPaymentRepetitionGuard" name="test_non_payment_unchanged" time="0.001" /><testcase classname="tests.test_new_features_iter3.TestPaymentRepetitionGuard" name="test_different_reply_unchanged" time="0.001" /><testcase classname="tests.test_new_features_iter3.TestGenerateAndSendAIReply" name="test_single_message_no_break_marker" time="0.102" /><testcase classname="tests.test_new_features_iter3.TestGenerateAndSendAIReply" name="test_explicit_marker_creates_two_sequential_messages" time="0.070"><failure message="RuntimeError: Event loop is closed">tests/test_new_features_iter3.py:223: in test_explicit_marker_creates_two_sequential_messages
+    result, outbound = _run(_go())
+                       ^^^^^^^^^^^
+tests/test_new_features_iter3.py:37: in _run
+    return asyncio.run(coro)
+           ^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_new_features_iter3.py:216: in _go
+    result = await ca.generate_and_send_ai_reply(ObjectId(mid), conv)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/conversation_ai.py:41: in generate_and_send_ai_reply
+    ).sort("created_at", 1).to_list(100)
+                            ^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1648: in to_list
+    self.get_io_loop(), self._get_more(), self._to_list, length, the_list, future
+                        ^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1411: in _get_more
+    return self._refresh()
+           ^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="tests.test_new_features_iter3.TestRegression" name="test_auth_me" time="1.040" /><testcase classname="tests.test_new_features_iter3.TestGenerateAndSendAIReply" name="test_repeat_payment_guard_replaces_body" time="0.045"><failure message="RuntimeError: Event loop is closed">tests/test_new_features_iter3.py:262: in test_repeat_payment_guard_replaces_body
+    outbound = _run(_go())
+               ^^^^^^^^^^^
+tests/test_new_features_iter3.py:37: in _run
+    return asyncio.run(coro)
+           ^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_new_features_iter3.py:255: in _go
+    await ca.generate_and_send_ai_reply(ObjectId(mid), conv)
+services/conversation_ai.py:41: in generate_and_send_ai_reply
+    ).sort("created_at", 1).to_list(100)
+                            ^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1648: in to_list
+    self.get_io_loop(), self._get_more(), self._to_list, length, the_list, future
+                        ^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1411: in _get_more
+    return self._refresh()
+           ^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="tests.test_new_features_iter3.TestRegression" name="test_conversations_list" time="0.210" /><testcase classname="tests.test_new_features_iter3.TestRegression" name="test_ai_settings" time="0.475" /><testcase classname="tests.test_new_features_iter3.TestApproveRejectEndpoint" name="test_approve_marks_paid_and_notifies" time="0.930"><failure message="AssertionError: assert 'failed' == 'sent'&#10;  &#10;  - sent&#10;  + failed">tests/test_new_features_iter3.py:532: in test_approve_marks_paid_and_notifies
+    assert msgs[0]["status"] == "sent"
+E   AssertionError: assert 'failed' == 'sent'
+E     
+E     - sent
+E     + failed</failure></testcase><testcase classname="tests.test_new_features_iter3.TestRegression" name="test_orders_list" time="0.205" /><testcase classname="tests.test_new_features_iter3.TestRegression" name="test_payment_review_queue" time="0.205" /><testcase classname="tests.test_new_features_iter3.TestApproveRejectEndpoint" name="test_reject_persists_status_and_notification" time="0.257" /><testcase classname="tests.test_new_features_iter3.TestRegression" name="test_webhook_verify_challenge" time="0.210"><failure message="assert 404 in (200, 403)&#10; +  where 404 = &lt;Response [404]&gt;.status_code">tests/test_new_features_iter3.py:662: in test_webhook_verify_challenge
+    assert r.status_code in (200, 403)
+E   assert 404 in (200, 403)
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_new_features_iter3.TestApproveRejectEndpoint" name="test_whatsapp_failure_still_returns_200" time="0.340" /><testcase classname="tests.test_new_features_iter3.TestSalesOptOut" name="test_note_sales_refusal_sets_flags" time="0.288" /><testcase classname="tests.test_new_features_iter3.TestShopifyUpdatePaymentReview" name="test_approve_success" time="0.007" /><testcase classname="tests.test_new_features_iter3.TestShopifyUpdatePaymentReview" name="test_reject_maps_non_2xx_to_error" time="0.005" /><testcase classname="tests.test_new_features_iter3.TestPaymentScreenshotVerify" name="test_review_required_and_ai_recommendation" time="0.040"><failure message="RuntimeError: Event loop is closed">tests/test_new_features_iter3.py:440: in test_review_required_and_ai_recommendation
+    result, order, conv, r = _run(_go())
+                             ^^^^^^^^^^^
+tests/test_new_features_iter3.py:37: in _run
+    return asyncio.run(coro)
+           ^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_new_features_iter3.py:422: in _go
+    result = await pv.verify_payment_screenshot(
+services/payment_verification.py:92: in verify_payment_screenshot
+    conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": oid})
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="tests.test_new_features_iter3.TestSalesOptOut" name="test_recommend_related_returns_empty_when_opted_out" time="0.034"><failure message="RuntimeError: Event loop is closed">tests/test_new_features_iter3.py:324: in test_recommend_related_returns_empty_when_opted_out
+    res = _run(_go())
+          ^^^^^^^^^^^
+tests/test_new_features_iter3.py:37: in _run
+    return asyncio.run(coro)
+           ^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_new_features_iter3.py:317: in _go
+    res = await dispatch("recommend_related", {"product": "anything"},
+services/ai_tools.py:138: in dispatch
+    conversation = await db.conversations.find_one({"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid})
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="tests.test_new_features_iter3.TestMetaInboundIdentityDedup" name="test_stores_identity_and_dedups" time="0.027"><failure message="pymongo.errors.DuplicateKeyError: E11000 duplicate key error collection: whatsapp_bot.whatsapp_connections index: merchant_id_1 dup key: { merchant_id: ObjectId('6a96abbd9e554110bf5b4af6') }, full error: {'index': 0, 'code': 11000, 'errmsg': &quot;E11000 duplicate key error collection: whatsapp_bot.whatsapp_connections index: merchant_id_1 dup key: { merchant_id: ObjectId('6a96abbd9e554110bf5b4af6') }&quot;, 'keyPattern': {'merchant_id': 1}, 'keyValue': {'merchant_id': ObjectId('6a96abbd9e554110bf5b4af6')}}">tests/test_new_features_iter3.py:378: in test_stores_identity_and_dedups
+    cust, conv, msgs = _run(_go())
+                       ^^^^^^^^^^^
+tests/test_new_features_iter3.py:37: in _run
+    return asyncio.run(coro)
+           ^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_new_features_iter3.py:338: in _go
+    await db.whatsapp_connections.update_one(
+/usr/local/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/collection.py:1086: in update_one
+    self._update_retryable(
+/root/.venv/lib/python3.11/site-packages/pymongo/collection.py:881: in _update_retryable
+    return self.__database.client._retryable_write(
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:1523: in _retryable_write
+    return self._retry_with_session(retryable, func, s, bulk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:1421: in _retry_with_session
+    return self._retry_internal(
+/root/.venv/lib/python3.11/site-packages/pymongo/_csot.py:107: in csot_wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:1462: in _retry_internal
+    ).run()
+      ^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:2315: in run
+    return self._read() if self._is_read else self._write()
+                                              ^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:2423: in _write
+    return self._func(self._session, conn, self._retryable)  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/collection.py:862: in _update
+    return self._update(
+/root/.venv/lib/python3.11/site-packages/pymongo/collection.py:825: in _update
+    _check_write_command_response(result)
+/root/.venv/lib/python3.11/site-packages/pymongo/helpers.py:266: in _check_write_command_response
+    _raise_last_write_error(write_errors)
+/root/.venv/lib/python3.11/site-packages/pymongo/helpers.py:238: in _raise_last_write_error
+    raise DuplicateKeyError(error.get("errmsg"), 11000, error)
+E   pymongo.errors.DuplicateKeyError: E11000 duplicate key error collection: whatsapp_bot.whatsapp_connections index: merchant_id_1 dup key: { merchant_id: ObjectId('6a96abbd9e554110bf5b4af6') }, full error: {'index': 0, 'code': 11000, 'errmsg': "E11000 duplicate key error collection: whatsapp_bot.whatsapp_connections index: merchant_id_1 dup key: { merchant_id: ObjectId('6a96abbd9e554110bf5b4af6') }", 'keyPattern': {'merchant_id': 1}, 'keyValue': {'merchant_id': ObjectId('6a96abbd9e554110bf5b4af6')}}</failure></testcase></testsuite></testsuites>

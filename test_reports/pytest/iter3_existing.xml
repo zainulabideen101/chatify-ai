@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="13" skipped="0" tests="106" time="33.316" timestamp="2026-09-10T22:26:58.300433+00:00" hostname="agent-env-154e281b-a9d5-43cd-9524-4aec0b9e7331"><testcase classname="tests.backend_test.TestAuth" name="test_login_success_and_cookies" time="1.389" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_register_creates_tenant" time="2.121" /><testcase classname="tests.backend_test.TestAuth" name="test_me" time="1.017" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_register_duplicate_email" time="0.214" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_default_ai_settings_created" time="0.098" /><testcase classname="tests.backend_test.TestAuth" name="test_login_wrong_password" time="0.631" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/products]" time="0.129" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/orders]" time="0.488" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/auth/me]" time="0.263" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/conversations]" time="0.088" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/customers]" time="0.084" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/media]" time="0.129" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/dashboard]" time="0.111" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/templates]" time="0.087" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/conversations]" time="0.088" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/knowledge-base]" time="0.129" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/products]" time="0.076" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/orders]" time="0.072" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_is_empty[/api/business-rules]" time="0.099" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/customers]" time="0.081" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_dashboard_zeroed" time="0.152" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/ai-settings]" time="0.078" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/integrations/status]" time="0.076" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/ai/tools]" time="0.083" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/media]" time="0.123" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/templates]" time="0.513" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/knowledge-base]" time="0.087" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_cross_tenant_resource_access_blocked" time="1.119" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/business-rules]" time="0.081" /><testcase classname="tests.backend_test.TestAuth" name="test_protected_requires_auth[/api/analytics/overview]" time="0.076" /><testcase classname="tests.backend_test.TestAuth" name="test_bcrypt_hash_format" time="1.450" /><testcase classname="tests.backend_test.TestRegistrationIsolation" name="test_new_tenant_login_works" time="0.792" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_address_incomplete" time="0.088" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_address_valid" time="0.078" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_address_placeholder" time="0.076" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_cod_risk[payload0]" time="0.076" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_cod_risk[payload1]" time="0.081" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_cod_risk[payload2]" time="0.084" /><testcase classname="tests.backend_test.TestDeterministicTools" name="test_cod_risk_high_for_bad_history" time="0.082" /><testcase classname="tests.backend_test.TestMerchantSettings" name="test_merchant_profile" time="0.087" /><testcase classname="tests.backend_test.TestIntegrations" name="test_status_not_configured" time="0.140"><failure message="assert True is False">tests/backend_test.py:406: in test_status_not_configured
+    assert d["shopify"]["connected"] is False
+E   assert True is False</failure></testcase><testcase classname="tests.backend_test.TestMerchantSettings" name="test_ai_settings_persist" time="0.702" /><testcase classname="tests.backend_test.TestIntegrations" name="test_shopify_connect_503" time="0.096" /><testcase classname="tests.backend_test.TestIntegrations" name="test_shopify_sync_without_connection" time="0.081" /><testcase classname="tests.backend_test.TestIntegrations" name="test_whatsapp_connect_and_disconnect" time="0.381"><failure message="AssertionError: {&quot;detail&quot;:&quot;invalid_or_expired_token: The Meta access token is invalid, expired, or revoked.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/backend_test.py:424: in test_whatsapp_connect_and_disconnect
+    assert r.status_code == 200, r.text[:300]
+E   AssertionError: {"detail":"invalid_or_expired_token: The Meta access token is invalid, expired, or revoked."}
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.backend_test.TestMerchantSettings" name="test_ai_settings_rejects_invalid_sales_mode" time="0.181" /><testcase classname="tests.backend_test.TestIntegrations" name="test_webhook_verify_handshake" time="0.341" /><testcase classname="tests.backend_test.TestMerchantSettings" name="test_business_rules_crud" time="0.441" /><testcase classname="tests.backend_test.TestIntegrations" name="test_webhook_verify_bad_token" time="0.102" /><testcase classname="tests.backend_test.TestIntegrations" name="test_webhook_post_bad_signature" time="0.110" /><testcase classname="tests.backend_test.TestMerchantSettings" name="test_knowledge_base_crud" time="0.261" /><testcase classname="tests.backend_test.TestDashboardAnalytics" name="test_dashboard" time="0.091" /><testcase classname="tests.backend_test.TestDashboardAnalytics" name="test_analytics_endpoints[/api/analytics/overview-keys0]" time="0.082" /><testcase classname="tests.backend_test.TestDashboardAnalytics" name="test_analytics_endpoints[/api/analytics/revenue-attribution-keys1]" time="0.073" /><testcase classname="tests.backend_test.TestMerchantSettings" name="test_template_create" time="0.230" /><testcase classname="tests.backend_test.TestDashboardAnalytics" name="test_analytics_endpoints[/api/analytics/cross-upsell-keys2]" time="0.072" /><testcase classname="tests.backend_test.TestDashboardAnalytics" name="test_analytics_endpoints[/api/analytics/cod-keys3]" time="0.068" /><testcase classname="tests.backend_test.TestDashboardAnalytics" name="test_analytics_endpoints[/api/analytics/customers-keys4]" time="0.078" /><testcase classname="tests.test_conversations_ai_features.TestPersonaSanitizer" name="test_sanitize_strips_emojis" time="0.260" /><testcase classname="tests.backend_test.TestMerchantSettings" name="test_audit_logs" time="0.104" /><testcase classname="tests.backend_test.TestCommerce" name="test_products_and_detail" time="0.176" /><testcase classname="tests.test_conversations_ai_features.TestPersonaSanitizer" name="test_sanitize_strips_markdown_asterisks_backticks" time="0.001" /><testcase classname="tests.test_conversations_ai_features.TestPersonaSanitizer" name="test_sanitize_strips_stray_underscores_emphasis" time="0.001" /><testcase classname="tests.test_conversations_ai_features.TestPersonaSanitizer" name="test_sanitize_preserves_urls_with_underscores" time="0.001" /><testcase classname="tests.test_conversations_ai_features.TestPersonaSanitizer" name="test_sanitize_preserves_multilingual" time="0.001" /><testcase classname="tests.test_conversations_ai_features.TestPersonaSanitizer" name="test_system_prompt_contains_persona_rules" time="0.044" /><testcase classname="tests.backend_test.TestCommerce" name="test_product_search" time="0.232" /><testcase classname="tests.backend_test.TestInbox" name="test_conversation_thread" time="0.196" /><testcase classname="tests.backend_test.TestInbox" name="test_takeover_send_return" time="1.331"><failure message="AssertionError: claims delivery while WhatsApp not connected&#10;assert True is False">tests/backend_test.py:198: in test_takeover_send_return
+    assert res["delivery"]["delivered"] is False, "claims delivery while WhatsApp not connected"
+E   AssertionError: claims delivery while WhatsApp not connected
+E   assert True is False</failure></testcase><testcase classname="tests.backend_test.TestCommerce" name="test_orders" time="0.168" /><testcase classname="tests.backend_test.TestCommerce" name="test_customer_detail_with_cod" time="0.169" /><testcase classname="tests.backend_test.TestCommerce" name="test_abandoned_and_relationships" time="0.165" /><testcase classname="tests.backend_test.TestCommerce" name="test_media_crud" time="0.364" /><testcase classname="tests.test_conversations_ai_features.TestAISettingsAutoHandover" name="test_get_returns_auto_handover_seconds" time="0.083" /><testcase classname="tests.test_conversations_ai_features.TestAISettingsAutoHandover" name="test_update_valid" time="0.154" /><testcase classname="tests.test_conversations_ai_features.TestAISettingsAutoHandover" name="test_update_rejects_negative" time="0.077" /><testcase classname="tests.test_conversations_ai_features.TestAISettingsAutoHandover" name="test_update_rejects_too_large" time="0.103" /><testcase classname="tests.test_conversations_ai_features.TestAISettingsAutoHandover" name="test_update_accepts_zero" time="0.178" /><testcase classname="tests.backend_test.TestInbox" name="test_conversation_404" time="0.087" /><testcase classname="tests.backend_test.TestInbox" name="test_summary_and_suggestion" time="0.159" /><testcase classname="tests.test_conversations_ai_features.TestRegressionEndpoints" name="test_login" time="0.697" /><testcase classname="tests.backend_test.TestInbox" name="test_ai_tools_registry" time="0.087"><failure message="assert True is False">tests/backend_test.py:221: in test_ai_tools_registry
+    assert d["llm_connected"] is False
+E   assert True is False</failure></testcase><testcase classname="tests.test_conversations_ai_features.TestTakeoverReturnToAI" name="test_takeover_sets_human_mode_and_iso_timestamp" time="0.476" /><testcase classname="tests.test_conversations_ai_features.TestRegressionEndpoints" name="test_list_conversations" time="0.102" /><testcase classname="tests.test_conversations_ai_features.TestTakeoverReturnToAI" name="test_return_to_ai_unsets_takeover_at" time="0.216" /><testcase classname="tests.test_conversations_ai_features.TestRegressionEndpoints" name="test_get_conversation" time="0.165" /><testcase classname="tests.test_conversations_ai_features.TestTakeoverReturnToAI" name="test_return_to_ai_with_latest_inbound_returns_200" time="0.300" /><testcase classname="tests.test_conversations_ai_features.TestRegressionEndpoints" name="test_ai_settings_endpoint" time="0.083" /><testcase classname="tests.test_conversations_ai_features.TestRegressionEndpoints" name="test_business_rules_endpoint" time="0.092" /><testcase classname="tests.test_orders_and_delivery.TestAIToolDispatchCustomerFacing" name="test_create_shopify_order_tool_no_integration_leak" time="0.267"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:214: in test_create_shopify_order_tool_no_integration_leak
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:206: in run
+    with patch.object(so_module.shopify_service, "configured", False):
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase><testcase classname="tests.test_conversations_ai_features.TestReadReceiptsAndUnread" name="test_get_conversation_marks_read_and_resets_unread" time="5.464" /><testcase classname="tests.test_orders_and_delivery.TestAIToolDispatchCustomerFacing" name="test_system_prompt_forbids_integration_mentions" time="0.110" /><testcase classname="tests.test_orders_and_delivery.TestShopifySyncPath" name="test_shopify_create_success_marks_synced" time="0.041"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:292: in test_shopify_create_success_marks_synced
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:267: in run
+    with patch.object(so_module.shopify_service, "configured", True), \
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase><testcase classname="tests.test_orders_and_delivery.TestShopifySyncPath" name="test_shopify_create_failure_leaves_local_created_sync_pending" time="0.050"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:348: in test_shopify_create_failure_leaves_local_created_sync_pending
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:326: in run
+    with patch.object(so_module.shopify_service, "configured", True), \
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase><testcase classname="tests.test_orders_and_delivery.TestWhatsAppDelivery" name="test_ai_reply_sent_persists_outbound" time="0.398"><failure message="RuntimeError: Event loop is closed">tests/test_orders_and_delivery.py:539: in test_ai_reply_sent_persists_outbound
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:525: in run
+    res = await ca_module.generate_and_send_ai_reply(ObjectId(mid), conv)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/conversation_ai.py:41: in generate_and_send_ai_reply
+    ).sort("created_at", 1).to_list(100)
+                            ^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1648: in to_list
+    self.get_io_loop(), self._get_more(), self._to_list, length, the_list, future
+                        ^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1411: in _get_more
+    return self._refresh()
+           ^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="tests.test_orders_and_delivery.TestWhatsAppDelivery" name="test_ai_reply_meta_401_marks_failed_and_connection_error" time="0.077"><failure message="RuntimeError: Event loop is closed">tests/test_orders_and_delivery.py:583: in test_ai_reply_meta_401_marks_failed_and_connection_error
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:562: in run
+    res = await ca_module.generate_and_send_ai_reply(ObjectId(mid), conv)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/conversation_ai.py:41: in generate_and_send_ai_reply
+    ).sort("created_at", 1).to_list(100)
+                            ^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1648: in to_list
+    self.get_io_loop(), self._get_more(), self._to_list, length, the_list, future
+                        ^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1411: in _get_more
+    return self._refresh()
+           ^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="tests.backend_test.TestHealth" name="test_health" time="3.058" /><testcase classname="tests.backend_test.TestBruteForceLockout" name="test_lockout_after_5_failures" time="8.851" /><testcase classname="tests.test_conversations_ai_features.TestReadReceiptsAndUnread" name="test_list_conversations_returns_unread_count_field" time="0.422" /><testcase classname="tests.test_orders_and_delivery.TestCancellationSyncPath" name="test_cancel_syncs_to_shopify_on_success" time="0.063"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:415: in test_cancel_syncs_to_shopify_on_success
+    asyncio.run(run(order_id, cust_id))
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:399: in run
+    with patch.object(so_module.shopify_service, "configured", True), \
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase><testcase classname="tests.test_orders_and_delivery.TestCancellationSyncPath" name="test_cancel_shopify_failure_still_cancelled_locally" time="0.072"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:449: in test_cancel_shopify_failure_still_cancelled_locally
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:435: in run
+    with patch.object(so_module.shopify_service, "configured", True), \
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase><testcase classname="tests.test_orders_and_delivery.TestLocalCancellation" name="test_cancel_latest_local_order" time="0.034"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:187: in test_cancel_latest_local_order
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:160: in run
+    with patch.object(so_module.shopify_service, "configured", False):
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase><testcase classname="tests.test_orders_and_delivery.TestWebhookAck" name="test_webhook_requires_signature_and_no_secret_leak" time="0.215" /><testcase classname="tests.test_orders_and_delivery.TestRegression" name="test_login_and_core_endpoints" time="1.756" /><testcase classname="tests.test_conversations_ai_features.TestAutoHandoverSweep" name="test_sweep_reverts_to_ai_after_timeout" time="4.588" /><testcase classname="tests.test_orders_and_delivery.TestLocalOrderCreation" name="test_create_local_order_without_shopify" time="0.032"><failure message="AttributeError: property 'configured' of 'ShopifyService' object has no deleter">/usr/local/lib/python3.11/unittest/mock.py:1555: in __enter__
+    setattr(self.target, self.attribute, new_attr)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no setter
+
+During handling of the above exception, another exception occurred:
+tests/test_orders_and_delivery.py:138: in test_create_local_order_without_shopify
+    asyncio.run(run())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_orders_and_delivery.py:109: in run
+    with patch.object(so_module.shopify_service, "configured", False):
+/usr/local/lib/python3.11/unittest/mock.py:1568: in __enter__
+    if not self.__exit__(*sys.exc_info()):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1576: in __exit__
+    delattr(self.target, self.attribute)
+E   AttributeError: property 'configured' of 'ShopifyService' object has no deleter</failure></testcase></testsuite></testsuites>

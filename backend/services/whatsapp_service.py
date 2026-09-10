@@ -4,16 +4,24 @@ Real interface around the Meta Graph API / Cloud API. No mocked sends: when a
 merchant has not connected a WhatsApp Business Account the methods raise
 `WhatsAppNotConfigured`. Incoming messages arrive via verified webhooks.
 """
-import os
-import hmac
 import hashlib
+import hmac
+import os
 
 import httpx
 
 from services.crypto import decrypt_secret
 
+
 class WhatsAppNotConfigured(Exception):
     pass
+
+
+class WhatsAppAPIError(Exception):
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 
 class WhatsAppService:
@@ -57,7 +65,7 @@ class WhatsAppService:
             "text": {"body": body},
         })
 
-    async def send_media(self, connection: dict, to: str, media_type: str, link: str, caption: str = None) -> dict:
+    async def send_media(self, connection: dict, to: str, media_type: str, link: str, caption: str | None = None) -> dict:
         if not connection:
             raise WhatsAppNotConfigured("No WhatsApp Business Account connected for this merchant.")
         payload = {"messaging_product": "whatsapp", "to": to, "type": media_type,
@@ -93,7 +101,7 @@ class WhatsAppService:
         return b"".join(chunks), mime_type
 
     async def send_template(self, connection: dict, to: str, template_name: str,
-                            language: str, components: list = None) -> dict:
+                            language: str, components: list | None = None) -> dict:
         if not connection:
             raise WhatsAppNotConfigured("No WhatsApp Business Account connected for this merchant.")
         return await self._graph_send(connection, {
@@ -105,9 +113,9 @@ class WhatsAppService:
         })
 
     async def _graph_send(self, connection: dict, payload: dict) -> dict:
-        """Live POST to the WhatsApp Cloud API. Requires a decrypted access token."""
-        import requests
-        from services.crypto import decrypt_secret
+        """Live POST to WhatsApp Cloud API with actionable provider errors."""
+        if not connection.get("access_token_enc"):
+            raise WhatsAppNotConfigured("The WhatsApp connection has no access token.")
         phone_number_id = connection["phone_number_id"]
         token = decrypt_secret(connection["access_token_enc"])
         params = {}
@@ -115,15 +123,25 @@ class WhatsAppService:
             params["appsecret_proof"] = hmac.new(
                 self.app_secret.encode(), token.encode(), hashlib.sha256
             ).hexdigest()
-        resp = requests.post(
-            f"https://graph.facebook.com/{self.GRAPH_VERSION}/{phone_number_id}/messages",
-            params=params,
-            headers={"Authorization": f"Bearer {token}"},
-            json=payload,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(
+                    f"https://graph.facebook.com/{self.GRAPH_VERSION}/{phone_number_id}/messages",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}"},
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            raise WhatsAppAPIError(502, "Meta WhatsApp could not be reached.") from exc
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        if resp.is_error:
+            error = body.get("error") or {}
+            detail = error.get("message") or f"Meta rejected the message with HTTP {resp.status_code}."
+            raise WhatsAppAPIError(resp.status_code, f"Meta WhatsApp error: {detail}")
+        return body
 
 
 whatsapp_service = WhatsAppService()

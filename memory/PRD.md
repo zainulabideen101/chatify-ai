@@ -88,3 +88,9 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - AI persona: system prompt rewritten with strict rules — NO emojis, NO markdown/asterisks/underscores/backticks, formal professional tone, and defined behaviour for abusive customers (stay calm, brief, escalate via `request_human_attention`). A defence-in-depth output-layer `sanitize_reply` strips emojis (Unicode categories So/Sk), markdown emphasis, and stray underscores while preserving URLs, IDs, and multilingual text.
 - Merchant setting UI: new "Auto-return to AI" input on the AI Agent page.
 - Tests: 22 new backend tests in `tests/test_conversations_ai_features.py`, all passing.
+
+
+## 2026-02 — AI Context Loop Fix
+- Root cause: prior conversation was stuffed inside the system prompt as a plain "CONVERSATION SO FAR:" transcript. GPT-5.4 was ignoring it and re-triggering `create_shopify_order` on every inbound turn, producing repeated "order placed" replies regardless of the customer's actual question (payment details / different product / cancellation).
+- Fix (`services/ai_agent.py`): history is now passed to `LlmChat` via `initial_messages` as real `user`/`assistant` turns (last 20). Each invocation uses a unique session_id suffix so the library holds no cross-call state. Added hard prompt rules against duplicate order creation and to explicitly respond to the latest customer message.
+- Defense in depth (`services/ai_tools.py`): `create_shopify_order` tool now short-circuits with `{created:false, duplicate:true, existing_order_number}` if an order exists for the same `conversation_id` within the last 10 minutes, guiding the LLM to answer the current question instead of re-creating an order.

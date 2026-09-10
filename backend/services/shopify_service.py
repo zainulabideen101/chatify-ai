@@ -190,4 +190,41 @@ class ShopifyService:
 
 
 
+    async def update_payment_review(self, shop_domain: str, access_token_enc: str,
+                                    shopify_order_id: str, approved: bool,
+                                    amount: float, note: str) -> dict:
+        """Reflect a seller's payment review in Shopify.
+
+        Approval records a successful manual sale transaction. Rejection adds a
+        seller note and tag so the Shopify order history reflects the decision.
+        """
+        if not self.configured or not access_token_enc:
+            raise ShopifyNotConfigured("Cannot update Shopify payment review without an authorized store.")
+        import requests
+        from services.crypto import decrypt_secret
+        token = decrypt_secret(access_token_enc)
+        headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+        if approved:
+            resp = requests.post(
+                f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders/{shopify_order_id}/transactions.json",
+                headers=headers,
+                json={"transaction": {"kind": "sale", "status": "success", "amount": f"{amount:.2f}", "gateway": "manual"}},
+                timeout=30,
+            )
+        else:
+            resp = requests.put(
+                f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders/{shopify_order_id}.json",
+                headers=headers,
+                json={"order": {"id": int(shopify_order_id), "note": note, "tags": "chatify-ai,payment-rejected"}},
+                timeout=30,
+            )
+        if resp.status_code in (401, 403):
+            raise ShopifyAPIError("Shopify rejected the store access token or payment permission.")
+        if resp.status_code == 429:
+            raise ShopifyAPIError("Shopify rate-limited the payment update. Please retry shortly.")
+        if resp.status_code >= 400:
+            raise ShopifyAPIError("Shopify rejected the payment review update.")
+        return resp.json()
+
+
 shopify_service = ShopifyService()
