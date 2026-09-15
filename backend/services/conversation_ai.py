@@ -4,12 +4,16 @@ Used by the WhatsApp webhook (auto-reply on inbound), the return-to-AI action, a
 the auto-handover cron path. Centralising ensures every entry point uses the same
 history-building and sanitisation rules.
 """
+import logging
 from bson import ObjectId
 
 from database import db
 from models import iso_now
 from services.ai_agent import LLMNotConfigured, ai_agent, note_sales_refusal
+from services.conversation_state import detect_latest_turn
 from services.whatsapp_service import whatsapp_service
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_and_send_ai_reply(mid: ObjectId, conv: dict) -> dict:
@@ -23,9 +27,32 @@ async def generate_and_send_ai_reply(mid: ObjectId, conv: dict) -> dict:
     if not prior:
         return {"sent": False, "reply": None, "messages": [], "reason": "no_history"}
 
+    conv = await db.conversations.find_one({"_id": conv["_id"], "merchant_id": mid}) or conv
     latest_inbound = next((m for m in reversed(prior) if m.get("direction") == "inbound"), None)
     if not latest_inbound:
         return {"sent": False, "reply": None, "messages": [], "reason": "no_inbound_to_answer"}
+
+    state_before = conv.get("conversation_state")
+    state = await detect_latest_turn(
+        str(mid), str(conv["_id"]), str(conv.get("customer_id") or ""),
+        latest_inbound.get("body", ""), state_before)
+    update = {"conversation_state": state, "intent": state["intent"], "last_detected_intent": state["last_detected_intent"]}
+    if state["intent"] == "confirmation_no":
+        update["pending_confirmation"] = False
+        await db.conversations.update_one(
+            {"_id": conv["_id"], "merchant_id": mid},
+            {"$set": update, "$unset": {"pending_order": ""}},
+        )
+    else:
+        await db.conversations.update_one(
+            {"_id": conv["_id"], "merchant_id": mid}, {"$set": update})
+    conv.update(update)
+    logger.info(
+        "AI turn conversation_id=%s customer_id=%s message=%r intent=%s product=%r size=%r order_number=%r state_before=%s state_after=%s",
+        conv["_id"], conv.get("customer_id"), latest_inbound.get("body", ""), state["intent"],
+        state.get("product"), state.get("size"), state.get("order_number_candidate") or state.get("order_number"),
+        state_before, state,
+    )
 
     await note_sales_refusal(str(mid), str(conv["_id"]), latest_inbound.get("body", ""))
     history = [
@@ -36,7 +63,7 @@ async def generate_and_send_ai_reply(mid: ObjectId, conv: dict) -> dict:
     try:
         result = await ai_agent.run_agent(
             str(mid), latest_inbound["body"], history=history,
-            conversation_id=str(conv["_id"]))
+            conversation_id=str(conv["_id"]), state=state)
     except LLMNotConfigured:
         return {"sent": False, "reply": None, "messages": [], "reason": "llm_not_configured"}
 

@@ -7,6 +7,7 @@ validates + executes it against tenant data. The LLM never touches external APIs
 import os
 import re
 import json
+import logging
 import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
@@ -16,6 +17,8 @@ from bson import ObjectId
 from database import db
 from models import iso_now
 from services.ai_tools import TOOL_SCHEMAS, dispatch
+
+logger = logging.getLogger(__name__)
 
 
 class Confidence(str, Enum):
@@ -63,6 +66,7 @@ class ToolRegistry:
             ("create_customer", "customer", "Create a customer record", True),
             ("update_customer", "customer", "Update a customer record", True),
             ("get_customer_orders", "customer", "List a customer's orders", False),
+            ("get_order_by_number", "order", "Look up one exact existing order number for this customer", False),
             ("get_customer_preferences", "customer", "Get stored customer memory", False),
             ("find_product_media", "media", "Find media for a product by tag/type", False),
             ("send_image", "media", "Send an image over WhatsApp", True),
@@ -234,6 +238,7 @@ HOW TO HANDLE EACH TURN — FOLLOW THIS DECISION FLOW EVERY TIME:
 7. NEVER copy your own previous reply. The newest customer message always wins over stale conversational momentum.
 
 HARD RULES (never break):
+- If the latest customer message contains a CFY-XXXXXXXX order number, call get_order_by_number with that exact reference before asking for product or size. Use the returned order_number exactly; if not found, say that exact reference could not be found. Never substitute or partially match an order number.
 - NEVER invent inventory, prices, discounts, product specs, shipping times, or policies. ALWAYS call a tool to get real data first.
 - Use check_variant_availability before confirming any product is available or stating a price.
 - Use find_product_media when the customer asks for a photo/pic/video. Only claim a media is a "real photo" if its tags say so.
@@ -251,6 +256,7 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
     async def run_agent(self, merchant_id: str, user_message: str,
                         history: list[dict] | None = None,
                         conversation_id: str | None = None,
+                        state: dict | None = None,
                         max_tool_rounds: int = 6) -> dict:
         """Run one assistant turn. Returns {reply, tool_trace}. Raises LLMNotConfigured."""
         if not self.llm_connected:
@@ -259,6 +265,16 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
         from emergentintegrations.llm.chat import LlmChat, UserMessage
 
         system = await self._build_system_prompt(merchant_id)
+        if state:
+            system += (
+                "\n\nSTRUCTURED CURRENT CONVERSATION STATE (authoritative for routing):\n"
+                f"intent={state.get('intent')}; product={state.get('product')}; variant={state.get('variant')}; "
+                f"size={state.get('size')}; quantity={state.get('quantity')}; delivery_address={state.get('delivery_address')}; "
+                f"verified_order_number={state.get('order_number')}; order_number_candidate={state.get('order_number_candidate')}; "
+                f"pending_confirmation={state.get('pending_confirmation')}; confirmation_type={state.get('confirmation_type')}; "
+                f"duplicate_check_required={state.get('duplicate_check_required')}.\n"
+                "Use the candidate order number only with the exact-order lookup tool. Never substitute it with another order number."
+            )
         recent_orders_block = ""
         if conversation_id:
             conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": ObjectId(merchant_id)})
@@ -360,7 +376,7 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                 .with_model("openai", "gpt-5.4")
                 .with_tools(TOOL_SCHEMAS, tool_choice="auto"))
 
-        ctx = {"merchant_id": merchant_id, "conversation_id": conversation_id, "latest_message": user_message}
+        ctx = {"merchant_id": merchant_id, "conversation_id": conversation_id, "latest_message": user_message, "state": state or {}}
         tool_trace = []
         response = await chat.send_message_with_tools(UserMessage(text=user_message))
         rounds = 0
@@ -369,6 +385,10 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
             for tc in response.tool_calls:
                 args = tc.arguments if isinstance(tc.arguments, dict) else json.loads(tc.arguments or "{}")
                 result = await dispatch(tc.name, args, ctx)
+                logger.info(
+                    "AI tool conversation_id=%s intent=%s tool=%s args=%s result=%s",
+                    conversation_id, (state or {}).get("intent"), tc.name, args, result,
+                )
                 tool_trace.append({"tool": tc.name, "args": args, "result": result})
                 chat.add_tool_result(tc.id, json.dumps(result, default=str))
             response = await chat.send_message_with_tools()

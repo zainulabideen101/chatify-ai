@@ -119,3 +119,12 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Added the user-provided Pakistan e-commerce support framework directly to the OpenAI GPT-5.4 system prompt.
 - The framework enforces concise bilingual support, exact real order references, availability handling, one-time existing-vs-new order clarification, minimal new-order fields (product, size, quantity default 1, address), ETA only from real data, and a task-focused prompt for greetings/random text.
 - Conflicting generic greeting instructions were aligned to the framework; backend pending-order and `created=true` safeguards remain authoritative.
+
+
+## 2026-02 — Deterministic Intent and Exact Order Routing
+- Added `services/conversation_state.py` for latest-turn intent extraction across greetings, availability, new orders, tracking, delivery estimates, modifications, cancellation, and Urdu/Roman Urdu confirmations.
+- Conversation state now stores current product, size, quantity, address, verified/candidate order number, pending confirmation, duplicate-check flags, last message/intent, flow intent, and state version.
+- Topic changes replace stale product/size/address flow state and clear pending duplicate/order summaries; duplicate checks run only for new-order intent.
+- Added exact `get_order_by_number` tool. It scopes lookups by tenant and customer, uses the extracted full CFY reference without partial matching, verifies the returned reference, and logs mismatches without exposing internal IDs to customers.
+- New-order creation is scoped to the structured current state, same-customer active orders, exact cart signatures, and a current pending summary. A customer’s explicit confirmation can advance a duplicate-check flow once; a declined confirmation clears it.
+- `conversation_ai` now refreshes the conversation after persistence, updates structured state before the LLM call, passes state into the prompt/tool context, and logs intent, extracted fields, state transitions, and tool activity.

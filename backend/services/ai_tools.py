@@ -3,11 +3,14 @@
 The LLM may REQUEST any of these; the backend executes them against the merchant's
 own data only. No external mutation happens without a live connection.
 """
+import logging
 import re
 from datetime import datetime, timezone
 from bson import ObjectId
 from database import db, serialize
 from services.commerce import address_validator
+
+logger = logging.getLogger(__name__)
 
 # ---- Tool schemas exposed to the LLM (OpenAI function-calling format) ----
 TOOL_SCHEMAS = [
@@ -17,6 +20,12 @@ TOOL_SCHEMAS = [
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string", "description": "search text, e.g. 'black hoodie'"}
         }, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "get_order_by_number",
+        "description": "Look up one exact existing customer order by its full order number. Use this whenever the latest customer message contains a CFY-XXXXXXXX order number. Never search partially and never substitute another order number.",
+        "parameters": {"type": "object", "properties": {
+            "order_number": {"type": "string", "description": "exact full order reference, for example CFY-03C16839"}
+        }, "required": ["order_number"]}}},
     {"type": "function", "function": {
         "name": "check_variant_availability",
         "description": "Check current inventory, price and availability of a product variant by size/colour. Use before confirming availability or price.",
@@ -63,7 +72,7 @@ TOOL_SCHEMAS = [
         }, "required": ["items"]}}},
     {"type": "function", "function": {
         "name": "create_shopify_order",
-        "description": "After the customer explicitly confirms the final order summary, create the order in Chatify AI immediately. Returns {created:true, order_number} on success. Returns {created:false, duplicate:true, existing_order_number, existing_items} if an active order with identical items already exists for this conversation — do NOT retry, just answer the customer using the existing order number. Never mention integrations or technical details to the customer.",
+        "description": "After the latest turn is classified as a new_order and the customer explicitly confirms the current pending summary, create the order in Chatify AI. Returns {created:true, order_number} on success. Duplicate detection runs only inside this new-order flow and uses the same customer plus same product/variant/quantity. Never create from greetings, tracking, availability, payment, or unrelated messages.",
         "parameters": {"type": "object", "properties": {
             "items": {"type": "array", "items": {"type": "object", "properties": {
                 "product": {"type": "string"}, "size": {"type": "string"}, "color": {"type": "string"}, "quantity": {"type": "integer"}}}},
@@ -107,7 +116,65 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
         }).limit(10).to_list(10)
         return {"results": [{"title": d["title"], "price": d["price"], "status": d["status"]} for d in docs]}
 
-    if name == "check_variant_availability":
+    if name == "get_order_by_number":
+        conversation = None
+        if ctx.get("conversation_id"):
+            conversation = await db.conversations.find_one({
+                "_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid,
+            })
+        customer_id = (conversation or {}).get("customer_id")
+        state = ctx.get("state") or {}
+        candidate = state.get("order_number_candidate")
+        requested = (candidate or args.get("order_number") or "").strip().upper()
+        if not re.fullmatch(r"CFY-[A-Z0-9]{8}", requested):
+            return {"found": False, "code": "invalid_order_number", "requested_order_number": requested}
+        supplied = (args.get("order_number") or "").strip().upper()
+        if supplied and candidate and supplied != candidate:
+            logger.warning(
+                "Order lookup number mismatch conversation_id=%s customer_id=%s extracted=%s model_requested=%s; using extracted number",
+                ctx.get("conversation_id"), customer_id, candidate, supplied,
+            )
+        query = {"merchant_id": oid, "order_number": requested}
+        if customer_id:
+            query["customer_id"] = customer_id
+        order = await db.shopify_orders.find_one(query)
+        if not order:
+            logger.info(
+                "Order lookup not found conversation_id=%s customer_id=%s requested_order_number=%s",
+                ctx.get("conversation_id"), customer_id, requested,
+            )
+            return {"found": False, "requested_order_number": requested, "code": "order_not_found"}
+        returned_number = str(order.get("order_number") or "").upper()
+        if returned_number != requested:
+            logger.error(
+                "Order lookup response mismatch conversation_id=%s customer_id=%s requested=%s returned=%s",
+                ctx.get("conversation_id"), customer_id, requested, returned_number,
+            )
+            return {"found": False, "code": "order_number_mismatch", "requested_order_number": requested}
+        if ctx.get("conversation_id"):
+            await db.conversations.update_one(
+                {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
+                {"$set": {
+                    "conversation_state.order_number": returned_number,
+                    "conversation_state.order_number_candidate": None,
+                    "conversation_state.intent": "order_tracking",
+                    "conversation_state.last_detected_intent": "order_tracking",
+                    "order_number": returned_number,
+                }},
+            )
+        return {
+            "found": True,
+            "order_number": returned_number,
+            "status": order.get("fulfillment_status"),
+            "payment_status": order.get("payment_status"),
+            "payment_method": order.get("payment_method"),
+            "total": order.get("total"),
+            "currency": "PKR",
+            "shipping_address": order.get("shipping_address"),
+            "items": order.get("items"),
+            "delivery_estimate": order.get("delivery_estimate") or order.get("estimated_delivery"),
+        }
+
         p = await _find_product(mid, args["product"])
         if not p:
             return {"found": False, "note": "Product not found in catalog."}
@@ -180,6 +247,14 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
         return {"documents": [{"title": d["title"], "category": d["category"], "content": d["content"]} for d in docs]}
 
     if name == "build_order_summary":
+        state = ctx.get("state") or {}
+        if state and state.get("intent") not in {"new_order", "confirmation_yes"}:
+            return {
+                "items": [],
+                "blocked": True,
+                "code": "not_new_order_intent",
+                "message": "Do not build an order summary for the latest intent. Answer the latest customer request instead.",
+            }
         items = args.get("items", [])
         line_items, subtotal = [], 0
         for it in items:
@@ -203,11 +278,21 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
         if ctx.get("conversation_id") and line_items:
             await db.conversations.update_one(
                 {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
-                {"$set": {"pending_order": {
-                    "items": args.get("items", []), "city": args.get("city"),
-                    "payment_method": args.get("payment_method", "COD"),
-                    "total": summary["total"], "created_at": datetime.now(timezone.utc).isoformat(),
-                }}})
+                {"$set": {
+                    "pending_order": {
+                        "items": args.get("items", []), "city": args.get("city"),
+                        "payment_method": args.get("payment_method", "COD"),
+                        "total": summary["total"], "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    "conversation_state.pending_confirmation": True,
+                    "conversation_state.confirmation_type": "new_order_summary",
+                    "conversation_state.duplicate_check_required": True,
+                    "conversation_state.duplicate_check_completed": False,
+                    "conversation_state.flow_intent": "new_order",
+                    "conversation_state.product": args.get("items", [{}])[0].get("product") if args.get("items") else None,
+                    "conversation_state.size": args.get("items", [{}])[0].get("size") if args.get("items") else None,
+                    "conversation_state.quantity": args.get("items", [{}])[0].get("quantity", 1) if args.get("items") else 1,
+                }})
         return summary
 
     if name == "create_shopify_order":
@@ -234,7 +319,30 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
             pending_order = (conversation or {}).get("pending_order")
 
         latest_message = ctx.get("latest_message") or ""
-        is_confirmation = bool(re.search(r"\b(yes|yeah|yep|ok|okay|confirm|confirmed|haan|han|theek|done)\b", latest_message, re.IGNORECASE))
+        state = ctx.get("state") or {}
+        current_intent = state.get("intent")
+        flow_intent = state.get("flow_intent")
+        if current_intent not in {"new_order", "confirmation_yes"} and flow_intent != "new_order":
+            return {
+                "created": False,
+                "blocked": True,
+                "code": "not_new_order_intent",
+                "message": (
+                    "The latest intent is not a new-order request. Do not create or duplicate an order. "
+                    "Answer the latest customer message instead."
+                ),
+            }
+        is_confirmation = bool(re.search(r"\b(yes|yeah|yep|ok|okay|confirm|confirmed|haan|han|jee|ji|theek|done|bilkul)\b|[جی ہاں]", latest_message, re.IGNORECASE))
+        allow_duplicate_after_confirmation = bool(
+            is_confirmation and state.get("confirmation_type") == "duplicate_check_same_cart"
+        )
+        if current_intent == "confirmation_no":
+            return {
+                "created": False,
+                "blocked": True,
+                "code": "confirmation_declined",
+                "message": "The customer declined the previous order question. Do not create an order; handle the latest request.",
+            }
         if not pending_order:
             return {
                 "created": False,
@@ -271,12 +379,16 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
 
         # Guardrail: only block when the SAME cart (same items+variants+quantities) already
         # exists as an active order for this conversation. Different items always pass.
-        if ctx.get("conversation_id"):
-            existing = await db.shopify_orders.find({
+        if ctx.get("conversation_id") and not allow_duplicate_after_confirmation:
+            existing_query = {
                 "merchant_id": oid,
-                "conversation_id": ObjectId(ctx["conversation_id"]),
                 "fulfillment_status": {"$nin": ["cancelled", "cancelled_by_customer"]},
-            }).sort("created_at", -1).limit(20).to_list(20)
+            }
+            if conversation and conversation.get("customer_id"):
+                existing_query["customer_id"] = conversation["customer_id"]
+            else:
+                existing_query["conversation_id"] = ObjectId(ctx["conversation_id"])
+            existing = await db.shopify_orders.find(existing_query).sort("created_at", -1).limit(20).to_list(20)
             for order in existing:
                 existing_sig = tuple(sorted(
                     (
@@ -291,6 +403,14 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                     any(e[0] == n[0] and (not n[1] or n[1] == e[1]) and n[3] == e[3] for e in existing_sig)
                     for n in new_sig
                 ) and len(new_sig) == len(existing_sig):
+                    await db.conversations.update_one(
+                        {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
+                        {"$set": {
+                            "conversation_state.duplicate_check_completed": True,
+                            "conversation_state.pending_confirmation": True,
+                            "conversation_state.confirmation_type": "duplicate_check_same_cart",
+                        }},
+                    )
                     return {
                         "created": False,
                         "duplicate": True,
@@ -302,11 +422,29 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                             "an ADDITIONAL separate order (wait for a clear yes) or if they want to change/cancel it."
                         ),
                     }
-        result = await create_customer_order(mid, ctx.get("conversation_id"), args)
+        if ctx.get("conversation_id"):
+            await db.conversations.update_one(
+                {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
+                {"$set": {"conversation_state.duplicate_check_completed": True}},
+            )
+        order_args = dict(args)
+        if conversation:
+            customer = await db.customers.find_one({"_id": conversation.get("customer_id"), "merchant_id": oid}) if conversation.get("customer_id") else None
+            if customer:
+                order_args["customer_phone"] = customer.get("phone") or order_args.get("customer_phone")
+                order_args["customer_name"] = customer.get("name") or customer.get("whatsapp_name") or order_args.get("customer_name")
+        result = await create_customer_order(mid, ctx.get("conversation_id"), order_args)
         if ctx.get("conversation_id") and result.get("created"):
             await db.conversations.update_one(
                 {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
-                {"$unset": {"pending_order": ""}},
+                {"$unset": {"pending_order": ""}, "$set": {
+                    "conversation_state.pending_confirmation": False,
+                    "conversation_state.confirmation_type": None,
+                    "conversation_state.duplicate_check_required": False,
+                    "conversation_state.duplicate_check_completed": True,
+                    "conversation_state.order_number": result.get("order_number"),
+                    "order_number": result.get("order_number"),
+                }},
             )
         # Provider/sync metadata is merchant-internal and must not be exposed to the customer-facing LLM turn.
         return {k: v for k, v in result.items() if k not in {"shopify_synced", "shopify_order_id", "sync_status"}}
