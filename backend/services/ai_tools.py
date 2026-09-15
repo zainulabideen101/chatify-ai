@@ -4,6 +4,7 @@ The LLM may REQUEST any of these; the backend executes them against the merchant
 own data only. No external mutation happens without a live connection.
 """
 import re
+from datetime import datetime, timezone
 from bson import ObjectId
 from database import db, serialize
 from services.commerce import address_validator
@@ -81,6 +82,10 @@ TOOL_SCHEMAS = [
 ]
 
 SHIPPING_FAST = {"lahore", "karachi", "islamabad", "rawalpindi"}
+_ORDER_INTENT_PATTERN = re.compile(
+    r"\b(order|place|buy|purchase|add|confirm|checkout|cart|lena|leni|lo|do|krdo|kardo|krdein|karein|krna|karna|chahiye|mangwana|bhej(?:na|do))\b",
+    re.IGNORECASE,
+)
 
 
 async def _find_product(merchant_id, name):
@@ -192,9 +197,18 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                                "quantity": qty, "unit_price": price, "line_total": price * qty})
         city = (args.get("city") or "").lower()
         shipping = 200 if line_items else 0
-        return {"items": line_items, "subtotal": subtotal, "shipping": shipping,
-                "total": subtotal + shipping, "currency": "PKR",
-                "payment_method": args.get("payment_method", "COD")}
+        summary = {"items": line_items, "subtotal": subtotal, "shipping": shipping,
+                   "total": subtotal + shipping, "currency": "PKR",
+                   "payment_method": args.get("payment_method", "COD")}
+        if ctx.get("conversation_id") and line_items:
+            await db.conversations.update_one(
+                {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
+                {"$set": {"pending_order": {
+                    "items": args.get("items", []), "city": args.get("city"),
+                    "payment_method": args.get("payment_method", "COD"),
+                    "total": summary["total"], "created_at": datetime.now(timezone.utc).isoformat(),
+                }}})
+        return summary
 
     if name == "create_shopify_order":
         from services.shopify_orders import create_customer_order
@@ -211,15 +225,58 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                 ))
             return tuple(sorted(normalized))
 
-        # Guardrail: only block when the SAME cart (same items+variants+quantities) was already
-        # created recently for this conversation. Different items must always be allowed.
+        conversation = None
+        pending_order = None
         if ctx.get("conversation_id"):
-            new_sig = _signature(args.get("items") or [])
+            conversation = await db.conversations.find_one({
+                "_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid,
+            })
+            pending_order = (conversation or {}).get("pending_order")
+
+        latest_message = ctx.get("latest_message") or ""
+        is_confirmation = bool(re.search(r"\b(yes|yeah|yep|ok|okay|confirm|confirmed|haan|han|theek|done)\b", latest_message, re.IGNORECASE))
+        if not pending_order:
+            return {
+                "created": False,
+                "blocked": True,
+                "code": "confirmation_required",
+                "message": (
+                    "No current order summary is awaiting confirmation. Do not create an order. "
+                    "Answer the customer's latest message directly; if they want a new order, build a fresh summary first."
+                ),
+            }
+        if not _ORDER_INTENT_PATTERN.search(latest_message) and not is_confirmation:
+            return {
+                "created": False,
+                "blocked": True,
+                "code": "latest_message_not_order_confirmation",
+                "message": (
+                    "The latest customer message is not an order confirmation. Do not create an order. "
+                    "Respond to the latest message and ignore old order intent."
+                ),
+            }
+
+        new_sig = _signature(args.get("items") or [])
+        pending_sig = _signature(pending_order.get("items") or [])
+        if new_sig != pending_sig:
+            return {
+                "created": False,
+                "blocked": True,
+                "code": "order_summary_mismatch",
+                "message": (
+                    "The requested cart does not match the pending summary. Do not create it. "
+                    "Build and present a fresh summary for the product named in the latest customer message."
+                ),
+            }
+
+        # Guardrail: only block when the SAME cart (same items+variants+quantities) already
+        # exists as an active order for this conversation. Different items always pass.
+        if ctx.get("conversation_id"):
             existing = await db.shopify_orders.find({
                 "merchant_id": oid,
                 "conversation_id": ObjectId(ctx["conversation_id"]),
                 "fulfillment_status": {"$nin": ["cancelled", "cancelled_by_customer"]},
-            }).sort("created_at", -1).limit(5).to_list(5)
+            }).sort("created_at", -1).limit(20).to_list(20)
             for order in existing:
                 existing_sig = tuple(sorted(
                     (
@@ -230,7 +287,6 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                     )
                     for it in (order.get("items") or [])
                 ))
-                # Match if the product+variant+qty tuple set matches (color is optional).
                 if new_sig and existing_sig and all(
                     any(e[0] == n[0] and (not n[1] or n[1] == e[1]) and n[3] == e[3] for e in existing_sig)
                     for n in new_sig
@@ -247,6 +303,11 @@ async def dispatch(name: str, args: dict, ctx: dict) -> dict:
                         ),
                     }
         result = await create_customer_order(mid, ctx.get("conversation_id"), args)
+        if ctx.get("conversation_id") and result.get("created"):
+            await db.conversations.update_one(
+                {"_id": ObjectId(ctx["conversation_id"]), "merchant_id": oid},
+                {"$unset": {"pending_order": ""}},
+            )
         # Provider/sync metadata is merchant-internal and must not be exposed to the customer-facing LLM turn.
         return {k: v for k, v in result.items() if k not in {"shopify_synced", "shopify_order_id", "sync_status"}}
 

@@ -105,3 +105,11 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
   - `create_shopify_order` guardrail is now **item-signature aware**, not time-based. It only blocks when the SAME product+variant+quantity set already exists as an active (non-cancelled) order for this conversation. Different items always pass through.
   - On duplicate, returns `{created:false, duplicate:true, existing_order_number, existing_items}` so the LLM answers with the existing order number instead of looping.
 - Fix (`services/conversation_ai.py`): removed `[[MESSAGE_BREAK]]` splitting and `_avoid_repeated_payment_details` regex hack. Every AI turn now sends exactly ONE WhatsApp message. Old unit tests replaced with the new single-message policy tests.
+
+
+## 2026-02 — Latest-Turn AI Context Guard
+- Root cause of the Zaheer Uddin loop: the prompt treated every existing order as globally relevant, repeated assistant replies were re-fed as equal-weight history, and `create_shopify_order` could be requested without a currently pending order summary. The model consequently mapped greetings and unrelated product questions back to the old Black Hoodie intent.
+- Latest-turn priority is now explicit: the newest inbound text is quoted as the highest-priority instruction, history is reference-only, and the model must classify the current message before consulting order history.
+- Duplicate assistant replies are removed from the in-memory history context; repeated orders are compacted by item/status before prompt injection.
+- `build_order_summary` now persists a tenant-scoped `pending_order`. `create_shopify_order` is backend-blocked unless a pending summary exists, the latest message is an order confirmation/request, and the requested cart matches that pending summary. This prevents any accidental order mutation for greetings, product availability, payment, tracking, or unrelated questions.
+- The AI now receives explicit current-turn guidance for greetings, named products, information requests, and ambiguous messages, with no previous reply text echoed into the steering prompt.

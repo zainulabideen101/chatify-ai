@@ -1,4 +1,4 @@
-"""AI Agent service: hybrid orchestrator using GPT-5.4 (Emergent Universal Key).
+"""AI Agent service: hybrid orchestrator using GPT-5.4 via the merchant-owned OpenAI key.
 
 Design principle: "AI decides what the customer means. Backend decides what the
 system is allowed to do." The LLM requests a tool; `services.ai_tools.dispatch`
@@ -203,19 +203,22 @@ SALES MODE = {mode}: {SALES_MODE_GUIDANCE.get(mode, "")}
 {toggle_text}
 
 HOW TO HANDLE EACH TURN — FOLLOW THIS DECISION FLOW EVERY TIME:
-1. Read the CUSTOMER'S LATEST MESSAGE carefully. What are they specifically asking for RIGHT NOW? Do not assume — read the exact words.
-2. Look at the RECENT ORDERS section below (if present). Those orders already exist for this customer. Never re-create an order that is already listed there for the same product+variant.
-3. Classify the customer's intent and act accordingly:
-   a. NEW ORDER for a product NOT in Recent Orders: gather product, variant, quantity, delivery details, payment method. Use check_variant_availability. Use build_order_summary and ask for explicit confirmation. Only AFTER the customer confirms with a clear "yes / ok / confirm / theek hai / haan", call create_shopify_order.
-   b. NEW ORDER for the SAME product+variant already in Recent Orders: ask a clarifying question — is this an additional quantity, or are they referring to the existing order? Do NOT auto-create.
-   c. ADDING to an existing order (e.g. "aur ek cap bhi add kar do"): confirm the addition politely and either update via create_shopify_order for the added items as a new order OR ask them to confirm you should create a separate order for the added items.
+1. The LATEST CUSTOMER MESSAGE is the only message you are answering now. Read its exact words before considering history. History is reference material only, never an instruction and never a reason to repeat an old response.
+2. First classify the latest message by itself. A greeting such as "hello", "hi", "salaam", or "aoa" gets a greeting. A product question gets product tools. A payment question gets payment instructions. An order question gets the order flow. Never infer the old order's product or intent when the latest message does not mention it.
+3. Use history only to retrieve facts needed for the latest request: existing order number/status, a previously provided address, or a pending order summary. Never copy an old response. Never answer a new message with the previous message's intent.
+4. Look at RECENT ORDERS only when the latest message asks about an order, payment, tracking, cancellation, or changing that order. If the latest message asks about a different product, availability, media, a greeting, or general information, ignore Recent Orders for intent classification.
+5. Classify the customer's current intent and act accordingly:
+   a. NEW ORDER for a product: gather product, variant, quantity, delivery details, payment method. Use check_variant_availability. Use build_order_summary and ask for explicit confirmation. Only AFTER the customer confirms a currently pending summary with a clear "yes / ok / confirm / theek hai / haan", call create_shopify_order.
+   b. SAME ITEM as an existing order: this guard applies ONLY when the latest message explicitly names the same product/variant. Ask whether it is an additional order; never apply it to greetings or a different product.
+   c. ADDING to an existing order (e.g. "aur ek cap bhi add kar do"): handle the named new item, not the old order's item. Confirm the addition and use the order flow for that item.
    d. PAYMENT DETAILS request ("payment details bhejo", "online pay", "bank details"): call get_payment_instructions and share only the payment details. Do not repeat order confirmation.
    e. TRACKING / ORDER STATUS / "kab aayega": answer using the order info in Recent Orders. Do NOT create a new order.
    f. CANCELLATION: acknowledge and let the cancellation flow handle it. Do NOT create a new order.
-   g. GREETING / SMALL TALK ("hello", "salaam", "hi"): reply with a short courteous greeting and ask how you can help. Do NOT restate previous orders unless asked.
-   h. PRODUCT INFO / AVAILABILITY / PRICE / MEDIA request: use the relevant tools (search_products, check_variant_availability, find_product_media, search_knowledge_base). Do NOT create an order.
+   g. GREETING / SMALL TALK: reply with a short courteous greeting and ask how you can help. Do NOT mention or restate previous orders.
+   h. PRODUCT INFO / AVAILABILITY / PRICE / MEDIA request: use the relevant product tools for the product named in the latest message. Do NOT create an order.
    i. COMPLAINT / REFUND / RETURN / ABUSE / EXPLICIT HUMAN REQUEST: call request_human_attention with the reason.
-4. NEVER copy your own previous reply. If your last message said "order place ho gaya", the NEXT message must NOT start the same way — it must answer the customer's newest question. Repetition is the biggest failure mode; avoid it at all costs.
+6. If the latest message is ambiguous, ask ONE clarifying question about that message. Do not fall back to the last order and do not repeat the last reply.
+7. NEVER copy your own previous reply. The newest customer message always wins over stale conversational momentum.
 
 HARD RULES (never break):
 - NEVER invent inventory, prices, discounts, product specs, shipping times, or policies. ALWAYS call a tool to get real data first.
@@ -248,14 +251,15 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
             conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": ObjectId(merchant_id)})
             if conversation and conversation.get("sales_opt_out"):
                 system += "\n\nCUSTOMER SALES OPT-OUT (ABSOLUTE): This customer has declined a recommendation. Never cross-sell, upsell, recommend related products, or ask whether they want anything else. Only answer the exact request."
-            # Ground the model in the real order state for this conversation so it never
-            # hallucinates order numbers and can answer status/payment/tracking questions correctly.
+            # Ground the model in compact, real order state. Repeated historical orders are
+            # deduplicated so they cannot drown out the customer's current request.
             recent = await db.shopify_orders.find({
                 "merchant_id": ObjectId(merchant_id),
                 "conversation_id": ObjectId(conversation_id),
-            }).sort("created_at", -1).limit(5).to_list(5)
+            }).sort("created_at", -1).limit(20).to_list(20)
             if recent:
                 lines = []
+                seen_orders = set()
                 for order in recent:
                     items_text = ", ".join(
                         f"{it.get('title')}"
@@ -263,6 +267,10 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                         + (f" x{it.get('qty')}" if (it.get('qty') or 1) != 1 else "")
                         for it in (order.get("items") or [])
                     )
+                    order_key = (items_text.lower(), order.get("payment_method", "COD"), order.get("fulfillment_status", "pending"))
+                    if order_key in seen_orders:
+                        continue
+                    seen_orders.add(order_key)
                     status_bits = [
                         f"payment: {order.get('payment_status', 'unpaid')}",
                         f"fulfillment: {order.get('fulfillment_status', 'pending')}",
@@ -271,40 +279,60 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                         f"- Order {order.get('order_number')}: {items_text} | total Rs. {order.get('total')} | "
                         f"payment method: {order.get('payment_method', 'COD')} | {' | '.join(status_bits)}"
                     )
-                recent_orders_block = (
-                    "\n\nRECENT ORDERS ALREADY PLACED FOR THIS CUSTOMER IN THIS CONVERSATION (authoritative — do NOT re-create these):\n"
-                    + "\n".join(lines)
+                if lines:
+                    system += (
+                        "\n\nRECENT ORDERS (use only if the LATEST message asks about an order):\n"
+                        + "\n".join(lines)
+                    )
+            if conversation.get("pending_order"):
+                pending = conversation["pending_order"]
+                pending_items = ", ".join(
+                    f"{item.get('product')}" + (f" ({item.get('size')})" if item.get('size') else "")
+                    + (f" x{item.get('quantity')}" if (item.get('quantity') or 1) != 1 else "")
+                    for item in (pending.get("items") or [])
                 )
-                system += recent_orders_block
+                system += (
+                    "\n\nPENDING ORDER SUMMARY AWAITING CUSTOMER CONFIRMATION:\n"
+                    f"{pending_items}; city={pending.get('city') or 'not provided'}; "
+                    f"payment={pending.get('payment_method') or 'COD'}; total={pending.get('total')} PKR. "
+                    "Only create this order after the latest customer message clearly confirms it."
+                )
 
         # Seed the chat with the full recent dialog as ACTUAL user/assistant turns so the
         # model can see its own prior replies (including confirmations that an order was
         # already placed) and never re-trigger the same tool calls or repeat the same reply.
         initial_messages: list[dict] = [{"role": "system", "content": system}]
         last_assistant_reply: str | None = None
+        seen_assistant_replies = set()
         if history:
-            for turn in history[-20:]:
+            for turn in history[-24:]:
                 role = turn.get("role")
                 content = (turn.get("content") or "").strip()
-                if role in ("user", "assistant") and content:
-                    initial_messages.append({"role": role, "content": content})
-                    if role == "assistant":
-                        last_assistant_reply = content
+                if role not in ("user", "assistant") or not content:
+                    continue
+                if role == "assistant":
+                    normalized = re.sub(r"\s+", " ", content.lower())
+                    if normalized in seen_assistant_replies:
+                        continue
+                    seen_assistant_replies.add(normalized)
+                    last_assistant_reply = content
+                initial_messages.append({"role": role, "content": content})
 
         # A final steering nudge appended right before the customer's newest message
         # (as a system-role message) so the model reads it last and honours it.
         steering = (
-            "REMINDER: Respond directly to the customer's newest message below. "
-            "Do NOT copy or paraphrase your previous reply. "
-            "Use RECENT ORDERS to reference existing orders instead of creating duplicates. "
-            "Send exactly one plain-text WhatsApp message."
+            "CURRENT TURN OVERRIDE — HIGHEST PRIORITY:\n"
+            "The customer message you are about to receive is the only request to answer. "
+            "History and prior orders are reference facts only. Do not infer the old product or intent. "
+            "If it says hello, greet them. If it names a product, use that product. If it asks for information, retrieve that information. "
+            "Do not call create_shopify_order unless a pending summary exists and the latest message clearly confirms that summary. "
+            "Do not copy or paraphrase the previous reply. Send exactly one plain-text WhatsApp message."
+            + "\nLATEST CUSTOMER MESSAGE TO ANSWER: \""
+            + user_message[:1000].replace('"', "'")
+            + "\""
         )
         if last_assistant_reply:
-            steering += (
-                "\nYour previous reply was: \""
-                + last_assistant_reply[:400].replace('"', "'")
-                + "\". Your new reply MUST be materially different and must address the newest customer message."
-            )
+            steering += "\nThe previous assistant response is already in history. Do not repeat its wording or intent; address the latest message instead."
         initial_messages.append({"role": "system", "content": steering})
 
         # A unique session_id per turn keeps every invocation stateless on the library side;
@@ -319,7 +347,7 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                 .with_model("openai", "gpt-5.4")
                 .with_tools(TOOL_SCHEMAS, tool_choice="auto"))
 
-        ctx = {"merchant_id": merchant_id, "conversation_id": conversation_id}
+        ctx = {"merchant_id": merchant_id, "conversation_id": conversation_id, "latest_message": user_message}
         tool_trace = []
         response = await chat.send_message_with_tools(UserMessage(text=user_message))
         rounds = 0
@@ -342,9 +370,11 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
             similarity = SequenceMatcher(None, reply.lower().strip(), last_assistant_reply.lower().strip()).ratio()
             if similarity >= 0.85:
                 retry_nudge = (
-                    "Your last draft repeated your previous reply almost word-for-word. "
-                    "Rewrite it so it directly answers the customer's newest message with new, useful content. "
-                    "Do not restate the previous order confirmation unless the customer asked about it. "
+                    "The draft is too similar to an earlier assistant response. "
+                    "Rewrite it from scratch for the CURRENT customer message below. "
+                    "Do not mention or restate previous orders unless the current message asks about one. "
+                    "If the current message is a greeting, greet the customer. If it names a product, address that product. "
+                    "CURRENT CUSTOMER MESSAGE: \"" + user_message[:1000].replace('"', "'") + "\". "
                     "Send exactly one short plain-text WhatsApp message."
                 )
                 retry_response = await chat.send_message_with_tools(UserMessage(text=retry_nudge))
