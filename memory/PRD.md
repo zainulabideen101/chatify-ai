@@ -113,3 +113,9 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Duplicate assistant replies are removed from the in-memory history context; repeated orders are compacted by item/status before prompt injection.
 - `build_order_summary` now persists a tenant-scoped `pending_order`. `create_shopify_order` is backend-blocked unless a pending summary exists, the latest message is an order confirmation/request, and the requested cart matches that pending summary. This prevents any accidental order mutation for greetings, product availability, payment, tracking, or unrelated questions.
 - The AI now receives explicit current-turn guidance for greetings, named products, information requests, and ambiguous messages, with no previous reply text echoed into the steering prompt.
+
+
+## 2026-02 — Pakistan Support Framework
+- Added the user-provided Pakistan e-commerce support framework directly to the OpenAI GPT-5.4 system prompt.
+- The framework enforces concise bilingual support, exact real order references, availability handling, one-time existing-vs-new order clarification, minimal new-order fields (product, size, quantity default 1, address), ETA only from real data, and a task-focused prompt for greetings/random text.
+- Conflicting generic greeting instructions were aligned to the framework; backend pending-order and `created=true` safeguards remain authoritative.
