@@ -3,7 +3,8 @@ import { PageHeader } from "@/components/Layout";
 import { Pill, useFetch } from "@/components/bits";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { PaperPlaneRight, UserSwitch, Sparkle, Robot, Check, Checks, Phone, MapPin, Image as ImageIcon } from "@phosphor-icons/react";
+import { PaperPlaneRight, UserSwitch, Sparkle, Robot, Check, Checks, Phone, MapPin, Image as ImageIcon, Plus, Trash } from "@phosphor-icons/react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 // WhatsApp-style status tick for outbound messages.
 function StatusTicks({ status }) {
@@ -49,6 +50,9 @@ export default function Conversations() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [creatingChat, setCreatingChat] = useState(false);
   const bottomRef = useRef(null);
   const scrollBoxRef = useRef(null);
   const lastMsgIdRef = useRef(null);
@@ -100,6 +104,41 @@ export default function Conversations() {
     finally { setSending(false); }
   };
 
+  const createConversation = async (event) => {
+    event.preventDefault();
+    const phone = newPhone.trim();
+    if (!phone || creatingChat) return;
+    setCreatingChat(true);
+    try {
+      const { data } = await api.post("/conversations", { phone });
+      const conversation = data.conversation;
+      setNewChatOpen(false);
+      setNewPhone("");
+      setDetail(null);
+      setActiveId(conversation.id);
+      await reloadConvos();
+      toast.success(data.existing ? "Conversation opened" : "New conversation ready");
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Enter a valid Pakistani WhatsApp number");
+    } finally {
+      setCreatingChat(false);
+    }
+  };
+
+  const deleteConversation = async () => {
+    if (!activeId || !window.confirm("Delete this chat and all of its messages? Customer and order records will remain.")) return;
+    try {
+      await api.delete(`/conversations/${activeId}`);
+      setDetail(null);
+      setActiveId(null);
+      await reloadConvos();
+      toast.success("Chat deleted");
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to delete chat");
+    }
+  };
+
   const takeover = async (returnAi) => {
     const url = returnAi ? "return-to-ai" : "takeover";
     await api.post(`/conversations/${activeId}/${url}`);
@@ -117,13 +156,37 @@ export default function Conversations() {
   return (
     <>
       <PageHeader title="Conversations" subtitle="Unified WhatsApp inbox" />
+      <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
+        <DialogContent data-testid="new-conversation-dialog">
+          <DialogHeader>
+            <DialogTitle>Start a new conversation</DialogTitle>
+            <DialogDescription>Enter a Pakistani WhatsApp number, then use the composer to contact them.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={createConversation} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="new-chat-phone" className="text-sm font-medium">WhatsApp number</label>
+              <input id="new-chat-phone" data-testid="new-conversation-phone-input" value={newPhone} onChange={(event) => setNewPhone(event.target.value)} placeholder="+92 300 0177889" required autoFocus className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              <p data-testid="new-conversation-phone-help" className="text-xs text-muted-foreground">Use +92 followed by the 10-digit Pakistani mobile number.</p>
+            </div>
+            <DialogFooter>
+              <button type="button" data-testid="new-conversation-cancel-button" onClick={() => setNewChatOpen(false)} className="h-9 px-3 rounded-md border border-input bg-background text-sm hover:bg-muted transition-colors">Cancel</button>
+              <button type="submit" data-testid="new-conversation-submit-button" disabled={creatingChat} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors disabled:opacity-50">{creatingChat ? "Opening…" : "Open conversation"}</button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <div className="grid grid-cols-1 lg:grid-cols-12 h-[calc(100vh-4rem)] bg-background border-t border-border/60 overflow-hidden">
         {/* List */}
         <div className="lg:col-span-3 min-h-0 border-r border-border/60 flex flex-col bg-white overflow-hidden">
           <div className="px-5 pt-5 pb-4 border-b border-border/60 space-y-3">
             <div className="flex items-end justify-between gap-3">
               <div><p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Live inbox</p><h2 data-testid="conversations-list-heading" className="text-lg font-semibold tracking-tight">Conversations</h2></div>
-              <span data-testid="conversation-count" className="text-xs font-mono text-muted-foreground">{convos.length} total</span>
+              <div className="flex items-center gap-2">
+                <span data-testid="conversation-count" className="text-xs font-mono text-muted-foreground">{convos.length} total</span>
+                <button data-testid="new-conversation-button" onClick={() => setNewChatOpen(true)} aria-label="Start a new conversation" className="h-8 w-8 rounded-md bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors">
+                  <Plus size={16} weight="bold" />
+                </button>
+              </div>
             </div>
             <input data-testid="conversation-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or number" className="w-full h-9 px-3 rounded-md bg-muted/60 border border-transparent text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
           </div>
@@ -176,15 +239,20 @@ export default function Conversations() {
                   </div>
                   <span data-testid="conversation-mode" className={`hidden sm:inline-flex items-center rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${detail.mode === "HUMAN_ACTIVE" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>{detail.mode === "HUMAN_ACTIVE" ? "Human" : "AI active"}</span>
                 </div>
-                {detail.mode === "HUMAN_ACTIVE" ? (
-                  <button data-testid="return-ai-btn" onClick={() => takeover(true)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors shrink-0">
-                    <Robot size={15} /> <span className="hidden sm:inline">Return to AI</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {detail.mode === "HUMAN_ACTIVE" ? (
+                    <button data-testid="return-ai-btn" onClick={() => takeover(true)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors">
+                      <Robot size={15} /> <span className="hidden sm:inline">Return to AI</span>
+                    </button>
+                  ) : (
+                    <button data-testid="takeover-btn" onClick={() => takeover(false)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-input bg-white text-sm hover:bg-muted transition-colors">
+                      <UserSwitch size={15} /> <span className="hidden sm:inline">Take Over</span>
+                    </button>
+                  )}
+                  <button data-testid="delete-conversation-button" onClick={deleteConversation} aria-label="Delete chat" className="h-9 w-9 rounded-md border border-red-200 text-red-600 flex items-center justify-center hover:bg-red-50 transition-colors">
+                    <Trash size={16} />
                   </button>
-                ) : (
-                  <button data-testid="takeover-btn" onClick={() => takeover(false)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-input bg-white text-sm hover:bg-muted transition-colors shrink-0">
-                    <UserSwitch size={15} /> <span className="hidden sm:inline">Take Over</span>
-                  </button>
-                )}
+                </div>
               </div>
 
               <div ref={scrollBoxRef} data-testid="message-scroll-container" className="flex-1 overflow-y-auto px-6 py-5 space-y-3">

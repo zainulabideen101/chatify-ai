@@ -107,7 +107,11 @@ class MediaCreate(BaseModel):
 
 # ---------- Inbox ----------
 class SendMessageRequest(BaseModel):
-    body: str
+    body: str = Field(min_length=1, max_length=4096)
+
+
+class NewConversationRequest(BaseModel):
+    phone: str = Field(min_length=7, max_length=24)
 
 
 class DefaultAISettings:

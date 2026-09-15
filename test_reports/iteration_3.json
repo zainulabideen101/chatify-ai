@@ -1,0 +1,29 @@
+{
+  "summary": "Static/config-only backend verification for the OpenAI key migration. No live LLM/WhatsApp calls made per user instruction. Verified: (1) AIAgentService.llm_connected reads only OPENAI_API_KEY (no EMERGENT_LLM_KEY dep); (2) run_agent constructs LlmChat with api_key=os.environ['OPENAI_API_KEY'] and .with_model('openai','gpt-5.4') and preserves TOOL_SCHEMAS/tool_choice='auto'; (3) payment_verification._analyze_image key check and LlmChat init both use OPENAI_API_KEY with model 'openai','gpt-5.4'; (4) backend/.env has OPENAI_API_KEY set and EMERGENT_LLM_KEY preserved (not required by production code anymore); (5) backend supervisor started cleanly (Application startup complete, no errors after reload); (6) /api/health returns 200 OK without leaking any secret; (7) No production code path references EMERGENT_LLM_KEY anymore (grep on /app/backend excluding tests: zero hits); (8) Frontend source (/app/frontend/src) contains no reference to OPENAI/EMERGENT keys and no key value leaks — only backend env holds the secret. llm_connected only returns a bool, never the key. Conversation history / custom tool behavior (TOOL_SCHEMAS, dispatch, initial_messages seeding, sales opt-out, recent orders grounding) are untouched.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "backend/tests/test_new_features_iter3.py, test_conversations_ai_features.py, test_orders_and_delivery.py", "issue": "Stale reference: these test files still list EMERGENT_LLM_KEY in the required-env check (`for _k in (\"MONGO_URL\", \"DB_NAME\", \"EMERGENT_LLM_KEY\")`). Not a runtime bug today (EMERGENT_LLM_KEY is still present in .env), but semantically stale after the migration — the AI path is now gated on OPENAI_API_KEY. Consider swapping to OPENAI_API_KEY so tests fail fast if the real dependency is missing."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [
+    "(Low) Update the three test files to check OPENAI_API_KEY instead of EMERGENT_LLM_KEY, so the required-env guard reflects the current AI dependency.",
+    "(Optional) Decide whether EMERGENT_LLM_KEY should remain in backend/.env — it is no longer referenced by any production code path. Keeping it is harmless; removing it would prevent confusion."
+  ],
+  "critical_code_review_comments": [
+    "ai_agent.py:315 uses os.environ['OPENAI_API_KEY'] directly (KeyError if unset), but run_agent guards with self.llm_connected first, so this is safe. Same pattern in payment_verification.py:74 is guarded by the earlier `os.environ.get('OPENAI_API_KEY')` check at line 60 — OK.",
+    "llm_connected returns only a boolean; secret is never serialized in any router response. Confirmed via grep across /app/backend routers/services.",
+    "Error/user-facing string in ai_agent.py:241 correctly says 'OPENAI_API_KEY not set' (no stale EMERGENT_LLM_KEY text remains in production code)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (static checks)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "Not used (no live calls performed)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "OpenAI key migration is complete on the backend. Production code paths in services/ai_agent.py and services/payment_verification.py rely exclusively on OPENAI_API_KEY. EMERGENT_LLM_KEY still exists in backend/.env but is no longer read by prod code. Existing test files still list EMERGENT_LLM_KEY in their required-env guard — cosmetic staleness only. Live LLM/WhatsApp verification was intentionally skipped; user will validate live behavior themselves.",
+  "rca of the issue": "N/A — configuration migration verified successfully."
+}

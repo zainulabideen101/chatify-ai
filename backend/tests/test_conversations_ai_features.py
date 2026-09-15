@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 # Load backend env (MONGO_URL, DB_NAME) into os.environ BEFORE importing backend modules
 backend_env = dotenv_values("/app/backend/.env")
-for _k in ("MONGO_URL", "DB_NAME", "EMERGENT_LLM_KEY"):
+for _k in ("MONGO_URL", "DB_NAME", "OPENAI_API_KEY"):
     if _k not in os.environ and backend_env.get(_k):
         os.environ[_k] = backend_env[_k]
 # Make backend importable

@@ -1,11 +1,12 @@
 """Conversation inbox: list, thread, human takeover, return-to-AI, summary, suggestions."""
+import re
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 
 from database import db, serialize, serialize_list
 from deps import get_tenant_id
-from models import SendMessageRequest, iso_now
+from models import NewConversationRequest, SendMessageRequest, iso_now
 from services.whatsapp_service import whatsapp_service
 from services.ai_agent import ai_agent
 from services.conversation_ai import generate_and_send_ai_reply
@@ -15,6 +16,20 @@ router = APIRouter(prefix="/api", tags=["inbox"])
 
 
 def _oid(tid): return ObjectId(tid)
+
+
+def _normalize_pk_phone(raw: str) -> str:
+    """Store WhatsApp numbers as Meta-compatible digits-only Pakistan E.164 values."""
+    value = re.sub(r"[^0-9+]", "", (raw or "").strip())
+    if value.startswith("+"):
+        value = value[1:]
+    if value.startswith("00"):
+        value = value[2:]
+    if value.startswith("03"):
+        value = "92" + value[1:]
+    if not re.fullmatch(r"923\d{9}", value):
+        raise HTTPException(422, "Enter a valid Pakistani WhatsApp number in +92 3XX XXXXXXX format")
+    return value
 
 
 async def _auto_handover_sweep(mid: ObjectId):
@@ -70,6 +85,60 @@ async def list_conversations(background: BackgroundTasks, tid: str = Depends(get
         query["needs_attention"] = True
     docs = await db.conversations.find(query).sort("last_message_at", -1).limit(limit).to_list(limit)
     return serialize_list(docs)
+
+
+@router.post("/conversations")
+async def create_conversation(payload: NewConversationRequest, tid: str = Depends(get_tenant_id)):
+    """Open a seller-started human thread for a Pakistani WhatsApp number."""
+    mid = _oid(tid)
+    phone = _normalize_pk_phone(payload.phone)
+    existing = await db.conversations.find_one({"merchant_id": mid, "customer_phone": phone})
+    if existing:
+        return {"conversation": serialize(existing), "existing": True}
+
+    customer = await db.customers.find_one({"merchant_id": mid, "phone": phone})
+    if not customer:
+        customer_insert = await db.customers.insert_one({
+            "merchant_id": mid, "name": phone, "whatsapp_name": phone, "phone": phone,
+            "preferred_language": None, "total_orders": 0, "delivered_orders": 0,
+            "cancelled_orders": 0, "refused_orders": 0, "failed_deliveries": 0,
+            "created_at": iso_now(),
+        })
+        customer = {"_id": customer_insert.inserted_id, "name": phone, "phone": phone}
+
+    now = iso_now()
+    conversation = {
+        "merchant_id": mid, "customer_id": customer["_id"],
+        "customer_name": customer.get("whatsapp_name") or customer.get("name") or phone,
+        "whatsapp_name": customer.get("whatsapp_name") or customer.get("name") or phone,
+        "customer_phone": phone, "mode": "HUMAN_ACTIVE", "needs_attention": False,
+        "ai_resolved": False, "low_confidence": False, "had_human_takeover": True,
+        "conversation_value": 0, "intent": "OTHER", "unread_count": 0,
+        "last_message": "New conversation", "last_message_at": now,
+        "created_at": now, "started_by": "human",
+    }
+    inserted = await db.conversations.insert_one(conversation)
+    conversation["_id"] = inserted.inserted_id
+    await log_action(tid, "conversation_created", actor="human", conversation_id=str(inserted.inserted_id), detail={"phone": phone})
+    return {"conversation": serialize(conversation), "existing": False}
+
+
+@router.delete("/conversations/{cid}")
+async def delete_conversation(cid: str, tid: str = Depends(get_tenant_id)):
+    """Permanently delete one tenant's chat and its messages, preserving CRM records."""
+    mid = _oid(tid)
+    try:
+        conversation_id = ObjectId(cid)
+    except Exception:
+        raise HTTPException(404, "Conversation not found")
+    conversation = await db.conversations.find_one({"_id": conversation_id, "merchant_id": mid})
+    if not conversation:
+        raise HTTPException(404, "Conversation not found")
+    deleted_messages = await db.messages.delete_many({"conversation_id": conversation_id, "merchant_id": mid})
+    await db.conversations.delete_one({"_id": conversation_id, "merchant_id": mid})
+    await log_action(tid, "conversation_deleted", actor="human", conversation_id=cid,
+                     detail={"messages_deleted": deleted_messages.deleted_count})
+    return {"ok": True, "conversation_id": cid, "messages_deleted": deleted_messages.deleted_count}
 
 
 @router.get("/conversations/{cid}")
