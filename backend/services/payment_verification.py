@@ -57,7 +57,7 @@ def _extract_json(text: str) -> dict:
 
 
 async def _analyze_image(image_bytes: bytes, mime_type: str, expected: dict) -> dict:
-    if not os.environ.get("EMERGENT_LLM_KEY"):
+    if not os.environ.get("OPENAI_API_KEY"):
         return {"decision": "review_required", "confidence": 0, "reasons": ["AI verification is not configured."]}
     from emergentintegrations.llm.chat import ImageContent, LlmChat, StreamDone, TextDelta, UserMessage
 
@@ -71,7 +71,7 @@ Expected bank: {expected.get('bank_name')}
 Expected account title: {expected.get('account_title')}
 Expected account number or IBAN: {expected.get('account_number')} / {expected.get('iban')}
 """
-    chat = (LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"payment-proof-{expected['order_id']}-{datetime.now(timezone.utc).timestamp()}", system_message="Verify payment screenshots conservatively; never claim payment is confirmed without visible evidence.")
+    chat = (LlmChat(api_key=os.environ["OPENAI_API_KEY"], session_id=f"payment-proof-{expected['order_id']}-{datetime.now(timezone.utc).timestamp()}", system_message="Verify payment screenshots conservatively; never claim payment is confirmed without visible evidence.")
             .with_model("openai", "gpt-5.4"))
     chunks = []
     async for event in chat.stream_message(UserMessage(text=prompt, file_contents=[ImageContent(image_base64=base64.b64encode(image_bytes).decode("ascii"))])):

@@ -169,7 +169,7 @@ class AIAgentService:
 
     @property
     def llm_connected(self) -> bool:
-        return bool(os.environ.get("EMERGENT_LLM_KEY"))
+        return bool(os.environ.get("OPENAI_API_KEY"))
 
     async def _build_system_prompt(self, merchant_id: str) -> str:
         oid = ObjectId(merchant_id)
@@ -238,7 +238,7 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                         max_tool_rounds: int = 6) -> dict:
         """Run one assistant turn. Returns {reply, tool_trace}. Raises LLMNotConfigured."""
         if not self.llm_connected:
-            raise LLMNotConfigured("EMERGENT_LLM_KEY not set — AI agent is not connected.")
+            raise LLMNotConfigured("OPENAI_API_KEY not set — AI agent is not connected.")
 
         from emergentintegrations.llm.chat import LlmChat, UserMessage
 
@@ -312,7 +312,7 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
         import uuid
         session = f"{conversation_id or f'pg-{merchant_id}'}-{uuid.uuid4().hex[:8]}"
         chat = (LlmChat(
-                    api_key=os.environ["EMERGENT_LLM_KEY"],
+                    api_key=os.environ["OPENAI_API_KEY"],
                     session_id=session,
                     system_message=system,
                     initial_messages=initial_messages)
