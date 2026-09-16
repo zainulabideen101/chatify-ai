@@ -251,6 +251,18 @@ HARD RULES (never break):
 MERCHANT RULES ("Teach your AI"):
 {rule_lines}
 
+SUPPORT CONTEXT CONTRACT (HIGHEST PRIORITY FOR CUSTOMER-FACING REPLIES):
+Every turn is evaluated using three blocks supplied below: CUSTOMER_PROFILE, CURRENT_CONVERSATION, and CONTEXT_DATA.
+- CUSTOMER_PROFILE is long-term memory only. Personalize from it, but never assume the current topic from old orders.
+- CURRENT_CONVERSATION is the active session. If it is short or the latest message changes intent, treat the request as a fresh topic and switch fully to it.
+- CONTEXT_DATA contains verified order/product/policy facts. Use it for factual answers; if it is absent or unclear, ask one specific question or use the appropriate tool instead of guessing.
+- Always answer the latest message first, in the same English, Urdu, or Roman Urdu style. Keep replies concise and helpful, usually 2–5 sentences.
+- Before replying, compare the intended answer with the last one or two assistant messages. If it would be nearly identical, move the conversation forward with a specific missing detail, a different useful angle, or human escalation.
+- For a valid exact order number, look up that exact value and do not ask for product or size again. Never substitute an order number. If it is not found, say that exact reference could not be found.
+- If the user changes product, size, address, or intent, reset only the stale flow fields and continue with the new request. Do not bring old orders into a new topic unless asked.
+- If the issue cannot be resolved from verified data, explicitly offer escalation to a human and stop guessing.
+- Use Pakistan conventions naturally: Rs/PKR, local cities, COD, JazzCash, EasyPaisa, bank transfer, cards, and local couriers where verified.
+
 Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LATEST MESSAGE -> ACT ACCORDING TO INTENT -> ONE CLEAR REPLY."""
 
     async def run_agent(self, merchant_id: str, user_message: str,
@@ -275,9 +287,17 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                 f"duplicate_check_required={state.get('duplicate_check_required')}.\n"
                 "Use the candidate order number only with the exact-order lookup tool. Never substitute it with another order number."
             )
-        recent_orders_block = ""
+        conversation = None
+        customer = None
+        recent = []
+        profile_orders = []
         if conversation_id:
             conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id), "merchant_id": ObjectId(merchant_id)})
+            if conversation and conversation.get("customer_id"):
+                customer = await db.customers.find_one({"_id": conversation["customer_id"], "merchant_id": ObjectId(merchant_id)})
+                profile_orders = await db.shopify_orders.find({
+                    "merchant_id": ObjectId(merchant_id), "customer_id": conversation["customer_id"],
+                }).sort("created_at", -1).limit(3).to_list(3)
             if conversation and conversation.get("sales_opt_out"):
                 system += "\n\nCUSTOMER SALES OPT-OUT (ABSOLUTE): This customer has declined a recommendation. Never cross-sell, upsell, recommend related products, or ask whether they want anything else. Only answer the exact request."
             # Ground the model in compact, real order state. Repeated historical orders are
@@ -326,6 +346,54 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                     f"payment={pending.get('payment_method') or 'COD'}; total={pending.get('total')} PKR. "
                     "Only create this order after the latest customer message clearly confirms it."
                 )
+
+        profile_name = (customer or {}).get("name") or (customer or {}).get("whatsapp_name") or "Not available"
+        profile_city = (customer or {}).get("city") or "Not available"
+        profile_language = (customer or {}).get("preferred_language") or "Not determined"
+        profile_tags = ", ".join((customer or {}).get("tags") or []) or "None"
+        profile_order_lines = [
+            f"- {order.get('order_number')}: {order.get('fulfillment_status', 'pending')}"
+            + (f"; payment {order.get('payment_status')}" if order.get("payment_status") else "")
+            for order in profile_orders
+            if order.get("order_number")
+        ]
+        current_lines = []
+        for turn in (history or [])[-12:]:
+            role = "Customer" if turn.get("role") == "user" else "Assistant"
+            content = (turn.get("content") or "").strip()
+            if content:
+                current_lines.append(f"{role}: {content}")
+        current_lines.append(f"Customer: {user_message}")
+        verified_context = []
+        if state:
+            verified_context.append(f"detected_intent={state.get('intent')}")
+            if state.get("product"):
+                verified_context.append(f"current_product={state.get('product')}")
+            if state.get("size"):
+                verified_context.append(f"current_size={state.get('size')}")
+            if state.get("order_number"):
+                verified_context.append(f"verified_order_number={state.get('order_number')}")
+            elif state.get("order_number_candidate"):
+                verified_context.append(f"order_number_to_verify={state.get('order_number_candidate')}")
+        if recent:
+            verified_context.append("current_conversation_orders=" + "; ".join(
+                f"{o.get('order_number')} ({o.get('fulfillment_status', 'pending')})"
+                for o in recent if o.get("order_number")
+            ))
+        if not verified_context:
+            verified_context.append("No verified context data is loaded; use the relevant backend tool before stating facts.")
+        system += (
+            "\n\n================ CUSTOMER_PROFILE ================\n"
+            f"Name: {profile_name}\nCity: {profile_city}\nLanguage style: {profile_language}\nTags: {profile_tags}\n"
+            + ("Recent orders:\n" + "\n".join(profile_order_lines) if profile_order_lines else "Recent orders: None available")
+            + "\nThis is long-term memory only; do not assume it is the current topic."
+            + "\n\n================ CURRENT_CONVERSATION ================\n"
+            + ("\n".join(current_lines) if current_lines else "Conversation is new or has no prior messages.")
+            + "\nTreat a clearly unrelated latest message as a new topic."
+            + "\n\n================ CONTEXT_DATA ================\n"
+            + "\n".join(verified_context)
+            + "\nUse verified context for facts; if missing or unclear, ask or use a tool instead of guessing."
+        )
 
         # Seed the chat with the full recent dialog as ACTUAL user/assistant turns so the
         # model can see its own prior replies (including confirmations that an order was
