@@ -135,3 +135,9 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - `CUSTOMER_PROFILE` is built from tenant-scoped customer memory and the latest three customer orders; it is explicitly marked as long-term context only.
 - `CURRENT_CONVERSATION` contains recent user/assistant messages plus the current message; `CONTEXT_DATA` contains the structured intent/current product/size/order reference and verified current-conversation order facts.
 - Added the requested base system contract for session/topic switching, IDLE/TAKING_ORDER/CONFIRMING_ORDER/CHECKING_STATUS/CANCELLATION_FLOW/ESCALATED states, no repetition, bilingual Pakistan support, exact order references, and escalation.
+
+
+## 2026-02 — Custom Prompt Removal
+- Removed the custom Pakistan support/base system prompt from `services/ai_agent.py` and reduced `_build_system_prompt` to an empty system message.
+- Removed the custom output sanitization and retry instructions from the agent runtime. The OpenAI GPT-5.4 wrapper and existing tool-calling integration remain enabled.
+- Conversation state and backend tool safeguards remain available independently of the removed prompt instructions.
