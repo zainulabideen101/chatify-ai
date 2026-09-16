@@ -128,3 +128,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Added exact `get_order_by_number` tool. It scopes lookups by tenant and customer, uses the extracted full CFY reference without partial matching, verifies the returned reference, and logs mismatches without exposing internal IDs to customers.
 - New-order creation is scoped to the structured current state, same-customer active orders, exact cart signatures, and a current pending summary. A customer’s explicit confirmation can advance a duplicate-check flow once; a declined confirmation clears it.
 - `conversation_ai` now refreshes the conversation after persistence, updates structured state before the LLM call, passes state into the prompt/tool context, and logs intent, extracted fields, state transitions, and tool activity.
+
+
+## 2026-02 — Structured OpenAI Input Blocks
+- Added the requested four-block payload to every initial OpenAI customer turn: `CUSTOMER_PROFILE`, `CURRENT_CONVERSATION`, `CONTEXT_DATA`, and `USER_MESSAGE`.
+- `CUSTOMER_PROFILE` is built from tenant-scoped customer memory and the latest three customer orders; it is explicitly marked as long-term context only.
+- `CURRENT_CONVERSATION` contains recent user/assistant messages plus the current message; `CONTEXT_DATA` contains the structured intent/current product/size/order reference and verified current-conversation order facts.
+- Added the requested base system contract for session/topic switching, IDLE/TAKING_ORDER/CONFIRMING_ORDER/CHECKING_STATUS/CANCELLATION_FLOW/ESCALATED states, no repetition, bilingual Pakistan support, exact order references, and escalation.

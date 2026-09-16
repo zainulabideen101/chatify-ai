@@ -252,7 +252,7 @@ MERCHANT RULES ("Teach your AI"):
 {rule_lines}
 
 SUPPORT CONTEXT CONTRACT (HIGHEST PRIORITY FOR CUSTOMER-FACING REPLIES):
-Every turn is evaluated using three blocks supplied below: CUSTOMER_PROFILE, CURRENT_CONVERSATION, and CONTEXT_DATA.
+Every turn is evaluated using four blocks supplied in the user message: CUSTOMER_PROFILE, CURRENT_CONVERSATION, CONTEXT_DATA, and USER_MESSAGE.
 - CUSTOMER_PROFILE is long-term memory only. Personalize from it, but never assume the current topic from old orders.
 - CURRENT_CONVERSATION is the active session. If it is short or the latest message changes intent, treat the request as a fresh topic and switch fully to it.
 - CONTEXT_DATA contains verified order/product/policy facts. Use it for factual answers; if it is absent or unclear, ask one specific question or use the appropriate tool instead of guessing.
@@ -262,6 +262,15 @@ Every turn is evaluated using three blocks supplied below: CUSTOMER_PROFILE, CUR
 - If the user changes product, size, address, or intent, reset only the stale flow fields and continue with the new request. Do not bring old orders into a new topic unless asked.
 - If the issue cannot be resolved from verified data, explicitly offer escalation to a human and stop guessing.
 - Use Pakistan conventions naturally: Rs/PKR, local cities, COD, JazzCash, EasyPaisa, bank transfer, cards, and local couriers where verified.
+
+INTERNAL STATE MACHINE:
+- Simulate one state per turn: IDLE, TAKING_ORDER, CONFIRMING_ORDER, CHECKING_STATUS, CANCELLATION_FLOW, or ESCALATED.
+- Simulate one intent per turn: new_order, order_status, cancel_order, change_order, general_query, confirmation_yes, confirmation_no, or other.
+- New/short conversations start in IDLE, then route to the latest intent. Buying enters TAKING_ORDER; a valid order ID or delivery question enters CHECKING_STATUS; cancellation enters CANCELLATION_FLOW; a product/price/availability question without purchase intent remains IDLE/general_query.
+- TAKING_ORDER collects only missing product, size, quantity, address, and payment method, then moves to CONFIRMING_ORDER with one summary and one confirmation question.
+- CONFIRMING_ORDER accepts yes/haan/jee/confirm or no/nahi/cancel in the language used. A yes advances the current summary; a no discards it. A topic change cancels the old pending confirmation immediately.
+- CHECKING_STATUS discusses only the exact requested order and verified delivery data. CANCELLATION_FLOW discusses the requested order IDs or all orders and must never ask whether an additional order is needed. ESCALATED stops automated solving.
+- If a loop is detected or the same question has already been asked twice, do not ask it a third time; provide a different useful next step or escalate.
 
 Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LATEST MESSAGE -> ACT ACCORDING TO INTENT -> ONE CLEAR REPLY."""
 
@@ -382,16 +391,21 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
             ))
         if not verified_context:
             verified_context.append("No verified context data is loaded; use the relevant backend tool before stating facts.")
-        system += (
-            "\n\n================ CUSTOMER_PROFILE ================\n"
+        customer_profile_block = (
             f"Name: {profile_name}\nCity: {profile_city}\nLanguage style: {profile_language}\nTags: {profile_tags}\n"
             + ("Recent orders:\n" + "\n".join(profile_order_lines) if profile_order_lines else "Recent orders: None available")
+        )
+        current_conversation_block = "\n".join(current_lines) if current_lines else "Conversation is new or has no prior messages."
+        context_data_block = "\n".join(verified_context)
+        system += (
+            "\n\n================ CUSTOMER_PROFILE ================\n"
+            + customer_profile_block
             + "\nThis is long-term memory only; do not assume it is the current topic."
             + "\n\n================ CURRENT_CONVERSATION ================\n"
-            + ("\n".join(current_lines) if current_lines else "Conversation is new or has no prior messages.")
+            + current_conversation_block
             + "\nTreat a clearly unrelated latest message as a new topic."
             + "\n\n================ CONTEXT_DATA ================\n"
-            + "\n".join(verified_context)
+            + context_data_block
             + "\nUse verified context for facts; if missing or unclear, ask or use a tool instead of guessing."
         )
 
@@ -446,7 +460,13 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
 
         ctx = {"merchant_id": merchant_id, "conversation_id": conversation_id, "latest_message": user_message, "state": state or {}}
         tool_trace = []
-        response = await chat.send_message_with_tools(UserMessage(text=user_message))
+        turn_payload = (
+            "CUSTOMER_PROFILE\n" + customer_profile_block
+            + "\n\nCURRENT_CONVERSATION\n" + current_conversation_block
+            + "\n\nCONTEXT_DATA\n" + context_data_block
+            + "\n\nUSER_MESSAGE\n" + user_message
+        )
+        response = await chat.send_message_with_tools(UserMessage(text=turn_payload))
         rounds = 0
         while getattr(response, "tool_calls", None) and rounds < max_tool_rounds:
             rounds += 1
@@ -478,7 +498,14 @@ Be concise, accurate, and move the customer toward their goal: UNDERSTAND THE LA
                     "CURRENT CUSTOMER MESSAGE: \"" + user_message[:1000].replace('"', "'") + "\". "
                     "Send exactly one short plain-text WhatsApp message."
                 )
-                retry_response = await chat.send_message_with_tools(UserMessage(text=retry_nudge))
+                retry_payload = (
+                    "CUSTOMER_PROFILE\n" + customer_profile_block
+                    + "\n\nCURRENT_CONVERSATION\n" + current_conversation_block
+                    + "\n\nCONTEXT_DATA\n" + context_data_block
+                    + "\n\nUSER_MESSAGE\n" + user_message
+                    + "\n\nSYSTEM RETRY INSTRUCTION\n" + retry_nudge
+                )
+                retry_response = await chat.send_message_with_tools(UserMessage(text=retry_payload))
                 retry_rounds = 0
                 while getattr(retry_response, "tool_calls", None) and retry_rounds < max_tool_rounds:
                     retry_rounds += 1
