@@ -1,10 +1,17 @@
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/Layout";
 import { Pill, useFetch } from "@/components/bits";
-import { api } from "@/lib/api";
+import { api, rs } from "@/lib/api";
 import { toast } from "sonner";
-import { PaperPlaneRight, UserSwitch, Sparkle, Robot, Check, Checks, Phone, MapPin, Image as ImageIcon, Plus, Trash } from "@phosphor-icons/react";
+import { PaperPlaneRight, UserSwitch, Sparkle, Robot, Check, Checks, Phone, MapPin, Image as ImageIcon, Plus, Trash, Package } from "@phosphor-icons/react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+
+const fmtOrderDate = (value) => {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+};
 
 // WhatsApp-style status tick for outbound messages.
 function StatusTicks({ status }) {
@@ -296,6 +303,36 @@ export default function Conversations() {
               <div className="min-w-0"><h3 className="text-sm font-semibold truncate">{activeName || "Customer"}</h3><p className="text-[11px] font-mono text-muted-foreground mt-0.5">{formatPhone(activePhone)}</p></div>
             </div>
             <div className="grid grid-cols-2 gap-2 mt-4 text-xs"><div className="rounded-md bg-muted/60 p-2"><Phone size={13} className="mb-1 text-muted-foreground" /><span className="text-muted-foreground">Phone</span><strong data-testid="customer-phone-detail" className="block mt-0.5 truncate">{activePhone || "—"}</strong></div><div className="rounded-md bg-muted/60 p-2"><MapPin size={13} className="mb-1 text-muted-foreground" /><span className="text-muted-foreground">City</span><strong className="block mt-0.5 truncate">{detail?.customer?.city || "—"}</strong></div></div>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-1.5 mb-2"><Package size={15} className="text-[hsl(var(--whatsapp))]" /><h3 className="text-sm font-semibold font-display">Orders</h3></div>
+            {detail?.orders?.length ? (
+              <div data-testid="conversation-orders" className="space-y-2">
+                {detail.orders.map((order) => (
+                  <Link
+                    key={order.id}
+                    data-testid={`conversation-order-${order.id}`}
+                    to={`/orders?order=${encodeURIComponent(order.order_number)}`}
+                    className="block border border-border/60 rounded-md p-3 hover:border-[hsl(var(--whatsapp))] hover:bg-emerald-50/40 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium tnum">#{order.order_number}</span>
+                      <span className="text-sm tnum font-semibold">{rs(order.total)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 truncate">
+                      {(order.items || []).map((item) => `${item.title}${item.variant ? ` (${item.variant})` : ""} ×${item.qty}`).join(", ") || "—"}
+                    </p>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[11px] text-muted-foreground tnum">{fmtOrderDate(order.order_date || order.created_at)}</span>
+                      <Pill tone={order.fulfillment_status}>{order.fulfillment_status || "pending"}</Pill>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground border border-dashed rounded-md p-3">No orders linked to this customer yet.</p>
+            )}
           </div>
 
           <div>

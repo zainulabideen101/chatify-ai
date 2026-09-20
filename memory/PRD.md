@@ -181,3 +181,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Customer records created from sync now also capture `city`.
 - Orders page: new Customer and Date columns; item lines show the variant ("Black Hoodie (Medium) ×1"); payment detail panel shows Customer, Address, and Order date rows.
 - Verified: backend compile + health OK, webpack compiled, Orders page renders new columns via browser smoke test. Existing local orders show "—" for customer until a real Shopify sync populates the fields.
+
+
+## 2026-02 — Conversation Panel Order Details + Order Deep Links
+- `GET /api/conversations/{cid}` now includes the customer's last 5 orders (`orders` key, screenshot paths stripped).
+- Conversations right panel shows an "Orders" section per customer: order number, items with variant, total, date, and status pill; each card links to `/orders?order=<order_number>`.
+- Orders page honors the deep link: it matches by order number, opens that order's detail panel, and scrolls the row into view (toast if not found).
+- Verified via curl: detail endpoint returns the `orders` array; backend compile + health OK; webpack compiled. Panel renders an empty-state note when the customer has no orders.

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/Layout";
 import { Pill, Section, EmptyState, useFetch } from "@/components/bits";
 import { api, formatApiErrorDetail, rs } from "@/lib/api";
@@ -14,10 +15,29 @@ const fmtDate = (value) => {
 export default function Orders() {
   const { data, loading, reload } = useFetch("/orders");
   const { data: reviewQueue, reload: reloadQueue } = useFetch("/payment-review");
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const selected = (data || []).find((order) => order.id === selectedId);
   const refresh = () => { reload(); reloadQueue(); };
+
+  // Deep link from the Conversations panel: /orders?order=<order_number>
+  useEffect(() => {
+    const wanted = searchParams.get("order");
+    if (!wanted || !data?.length) return;
+    const match = data.find((o) => String(o.order_number) === wanted);
+    if (match) {
+      setSelectedId(match.id);
+      requestAnimationFrame(() => {
+        document.querySelector(`[data-testid="order-${match.id}"]`)?.scrollIntoView({ block: "center" });
+      });
+    } else {
+      toast.info(`Order #${wanted} was not found on this page.`);
+    }
+    searchParams.delete("order");
+    setSearchParams(searchParams, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, searchParams]);
 
   const syncFromShopify = async () => {
     setSyncing(true);

@@ -165,7 +165,18 @@ async def get_conversation(cid: str, tid: str = Depends(get_tenant_id)):
     customer = None
     if conv.get("customer_id"):
         customer = await db.customers.find_one({"_id": conv["customer_id"], "merchant_id": _oid(tid)})
-    return {**serialize(conv), "messages": serialize_list(messages), "customer": serialize(customer)}
+
+    orders = []
+    if customer:
+        order_docs = await db.shopify_orders.find(
+            {"merchant_id": _oid(tid), "customer_id": customer["_id"]}
+        ).sort("created_at", -1).to_list(5)
+        for o in order_docs:
+            od = serialize(o)
+            od.pop("payment_screenshot_path", None)
+            orders.append(od)
+    return {**serialize(conv), "messages": serialize_list(messages),
+            "customer": serialize(customer), "orders": orders}
 
 
 @router.get("/conversations/{cid}/summary")
