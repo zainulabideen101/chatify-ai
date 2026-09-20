@@ -3,19 +3,39 @@ import { PageHeader } from "@/components/Layout";
 import { Pill, Section, EmptyState, useFetch } from "@/components/bits";
 import { api, formatApiErrorDetail, rs } from "@/lib/api";
 import { toast } from "sonner";
-import { CheckCircle, Warning, X } from "@phosphor-icons/react";
+import { CheckCircle, Warning, X, ArrowClockwise } from "@phosphor-icons/react";
 
 export default function Orders() {
   const { data, loading, reload } = useFetch("/orders");
   const { data: reviewQueue, reload: reloadQueue } = useFetch("/payment-review");
   const [selectedId, setSelectedId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
   const selected = (data || []).find((order) => order.id === selectedId);
   const refresh = () => { reload(); reloadQueue(); };
+
+  const syncFromShopify = async () => {
+    setSyncing(true);
+    try {
+      const { data: result } = await api.post("/integrations/shopify/sync-orders");
+      toast.success(`Orders synced — ${result.orders_created} new, ${result.orders_updated} updated`);
+      refresh();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Connect Shopify first");
+    } finally { setSyncing(false); }
+  };
 
   return (
     <>
       <PageHeader title="Orders" subtitle="AI & human generated orders" />
       <Section>
+        <div className="flex items-center justify-between mb-4">
+          <div data-testid="orders-total" className="text-sm text-muted-foreground">
+            Total orders: <b className="text-foreground tnum">{data?.length ?? 0}</b>
+          </div>
+          <button data-testid="sync-orders-shopify-btn" disabled={syncing} onClick={syncFromShopify} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
+            <ArrowClockwise size={15} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing..." : "Sync from Shopify"}
+          </button>
+        </div>
         {(reviewQueue || []).length > 0 && (
           <div data-testid="payment-review-queue" className="border border-amber-200 bg-amber-50/60 rounded-lg p-5 space-y-3">
             <div className="flex items-center gap-2"><Warning size={17} weight="fill" className="text-amber-700" /><h2 className="font-display text-sm font-semibold">Payment review queue</h2><span className="text-xs text-amber-800">{reviewQueue.length} waiting</span></div>

@@ -166,3 +166,11 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Tokens are 24h short-lived; `shopify_service.ensure_access_token` auto-refreshes from the encrypted stored credentials before every Admin API call (catalog sync, order create/cancel, payment review).
 - Settings UI connects inline (no redirect): domain + Client ID + Client Secret → Connected. Errors surface Shopify's real response, including the same-organization (`shop_not_permitted`) requirement.
 - Verified via curl: bad domain 400, fake credentials hit live Shopify and return its real 404 rejection as 400, connection status clean, backend healthy. Real-store connect awaits the user's actual credentials.
+
+
+## 2026-02 — Shopify Order Sync + Page Sync Buttons
+- Added `shopify_service.sync_orders`: pulls all orders (`status=any`, paginated) from the Admin API and upserts by `shopify_order_id`; new orders create/link customers by phone, existing local orders only get sync-safe fields (total, items, payment/fulfillment status) — payment verification data is never clobbered.
+- New endpoint `POST /api/integrations/shopify/sync-orders` (token auto-refresh + audit log).
+- Products page: "Sync products from Shopify" button (calls `/shopify/sync`, toasts counts, reloads) + live "Total products: N" counter.
+- Orders page: "Sync from Shopify" button (calls `/shopify/sync-orders`, toasts new/updated counts, reloads) + "Total orders: N" counter.
+- Sync is manual-only (button press), per user requirement. Verified: both endpoints return 400 without a connection, backend healthy, both pages render with buttons/counters via browser smoke test. Live sync awaits real Shopify credentials.

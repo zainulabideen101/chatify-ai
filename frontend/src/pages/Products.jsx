@@ -1,15 +1,39 @@
+import { useState } from "react";
 import { PageHeader } from "@/components/Layout";
 import { Pill, Section, EmptyState, useFetch } from "@/components/bits";
-import { rs } from "@/lib/api";
+import { api, rs } from "@/lib/api";
+import { toast } from "sonner";
+import { ArrowClockwise } from "@phosphor-icons/react";
 
 export default function Products() {
-  const { data, loading } = useFetch("/products");
+  const { data, loading, reload } = useFetch("/products");
+  const [syncing, setSyncing] = useState(false);
+
+  const syncFromShopify = async () => {
+    setSyncing(true);
+    try {
+      const { data: result } = await api.post("/integrations/shopify/sync");
+      toast.success(`Catalog synced — ${result.products} products, ${result.variants} variants`);
+      reload();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Connect Shopify first");
+    } finally { setSyncing(false); }
+  };
+
   return (
     <>
       <PageHeader title="Products" subtitle="Synced from Shopify" />
       <Section>
+        <div className="flex items-center justify-between mb-4">
+          <div data-testid="products-total" className="text-sm text-muted-foreground">
+            Total products: <b className="text-foreground tnum">{data?.length ?? 0}</b>
+          </div>
+          <button data-testid="sync-products-shopify-btn" disabled={syncing} onClick={syncFromShopify} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
+            <ArrowClockwise size={15} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing..." : "Sync products from Shopify"}
+          </button>
+        </div>
         {loading ? "Loading…" : !data.length ? (
-          <EmptyState title="No products" hint="Connect Shopify to synchronize your catalog, variants and inventory." />
+          <EmptyState title="No products" hint="Connect Shopify and press “Sync products from Shopify” to load your catalog, variants and inventory." />
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {data.map((p) => (

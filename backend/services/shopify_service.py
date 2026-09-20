@@ -169,6 +169,90 @@ class ShopifyService:
             {"$set": {"last_sync": iso_now_str(), "sync_errors": errors}})
         return {"synced": True, "products": products, "variants": variants, "errors": errors}
 
+    async def sync_orders(self, shop_domain: str, access_token: str, merchant_id: str) -> dict:
+        """Pull all orders (any status) from the Shopify Admin API into the tenant.
+
+        Existing local orders matched by shopify_order_id get their sync-safe
+        fields updated (total, items, payment/fulfillment status); local-only
+        verification fields are never touched. New orders create/link customers
+        by phone when available.
+        """
+        if not access_token:
+            raise ShopifyNotConfigured("Connect a Shopify store first.")
+        import requests
+        from bson import ObjectId
+        from database import db
+
+        headers = {"X-Shopify-Access-Token": access_token}
+        url = f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders.json?status=any&limit=250"
+        oid = ObjectId(merchant_id)
+        now = iso_now_str()
+        created = updated = 0
+        while url:
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code in (401, 403):
+                raise ShopifyAPIError("Shopify rejected the token or order-read permission. Add read_orders scope.")
+            if resp.status_code >= 400:
+                raise ShopifyAPIError(f"Shopify order sync failed (HTTP {resp.status_code}).")
+            for o in resp.json().get("orders", []):
+                shopify_id = str(o["id"])
+                financial = o.get("financial_status")
+                fulfillment = o.get("fulfillment_status")
+                updates = {
+                    "shopify_order_id": shopify_id, "shopify_synced_at": now,
+                    "order_number": o.get("order_number") or o.get("name") or shopify_id,
+                    "total": float(o.get("total_price") or 0),
+                    "payment_status": "paid" if financial == "paid" else "unpaid",
+                    "fulfillment_status": fulfillment or "pending",
+                    "items": [
+                        {"title": item.get("title") or item.get("name"), "variant": item.get("variant_title"),
+                         "qty": item.get("quantity", 1), "price": float(item.get("price") or 0)}
+                        for item in o.get("line_items", [])
+                    ],
+                }
+                if o.get("cancelled_at"):
+                    updates.update({"fulfillment_status": "cancelled",
+                                    "cancellation_status": "cancelled_on_shopify",
+                                    "cancelled_at": o["cancelled_at"]})
+                local = await db.shopify_orders.find_one({"merchant_id": oid, "shopify_order_id": shopify_id})
+                if local:
+                    await db.shopify_orders.update_one(
+                        {"_id": local["_id"], "merchant_id": oid}, {"$set": updates})
+                    updated += 1
+                    continue
+                shipping = o.get("shipping_address") or {}
+                customer_data = o.get("customer") or {}
+                phone = shipping.get("phone") or customer_data.get("phone") or ""
+                customer = await db.customers.find_one({"merchant_id": oid, "phone": phone}) if phone else None
+                if not customer:
+                    inserted = await db.customers.insert_one({
+                        "merchant_id": oid,
+                        "name": shipping.get("name") or customer_data.get("first_name") or phone or "Shopify customer",
+                        "phone": phone, "preferred_language": None, "total_orders": 0,
+                        "delivered_orders": 0, "cancelled_orders": 0, "refused_orders": 0,
+                        "failed_deliveries": 0, "created_at": now,
+                    })
+                    customer = {"_id": inserted.inserted_id}
+                updates.update({
+                    "merchant_id": oid, "customer_id": customer["_id"],
+                    "payment_method": "SHOPIFY", "attribution": "SHOPIFY",
+                    "created_at": o.get("created_at") or now,
+                })
+                await db.shopify_orders.insert_one(updates)
+                await db.customers.update_one(
+                    {"_id": customer["_id"], "merchant_id": oid}, {"$inc": {"total_orders": 1}})
+                created += 1
+            link = resp.headers.get("Link", "")
+            nxt = None
+            for part in link.split(","):
+                if 'rel="next"' in part:
+                    nxt = part[part.find("<") + 1:part.find(">")]
+            url = nxt
+
+        await db.shopify_connections.update_one(
+            {"merchant_id": oid}, {"$set": {"last_order_sync": now}})
+        return {"synced": True, "orders_created": created, "orders_updated": updated}
+
     async def create_order(self, shop_domain: str, access_token: str, payload: dict) -> dict:
         """Create an order via Shopify Admin API."""
         import requests

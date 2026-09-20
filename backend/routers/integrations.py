@@ -162,6 +162,22 @@ async def shopify_sync(tid: str = Depends(get_tenant_id)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/shopify/sync-orders")
+async def shopify_sync_orders(tid: str = Depends(get_tenant_id)):
+    conn = await db.shopify_connections.find_one({"merchant_id": ObjectId(tid)})
+    if not conn:
+        raise HTTPException(status_code=400, detail="Connect a Shopify store first")
+    try:
+        token = await shopify_service.ensure_access_token(conn)
+        result = await shopify_service.sync_orders(conn["shop_domain"], token, tid)
+        await log_action(tid, "shopify_orders_synced", actor="merchant", detail=result)
+        return result
+    except ShopifyNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ShopifyAPIError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ---------- WhatsApp / Meta ----------
 @router.post("/whatsapp/connect")
 async def whatsapp_connect(payload: WhatsAppConnectRequest, tid: str = Depends(get_tenant_id)):
