@@ -220,6 +220,21 @@ class ShopifyService:
                     shipping.get("city"), shipping.get("province"),
                     shipping.get("zip"), shipping.get("country"),
                 ])) or None
+                fulfillments = [
+                    {
+                        "tracking_number": f.get("tracking_number"),
+                        "tracking_company": f.get("tracking_company"),
+                        "tracking_url": f.get("tracking_url"),
+                        "shipment_status": f.get("shipment_status"),
+                        "dispatched_at": f.get("created_at"),
+                        "items": [
+                            {"title": li.get("title") or li.get("name"), "qty": li.get("quantity", 1)}
+                            for li in (f.get("line_items") or [])
+                        ],
+                    }
+                    for f in (o.get("fulfillments") or [])
+                    if f.get("status") != "cancelled"
+                ]
                 updates = {
                     "shopify_order_id": shopify_id, "shopify_synced_at": now,
                     "order_number": o.get("order_number") or o.get("name") or shopify_id,
@@ -227,9 +242,13 @@ class ShopifyService:
                     "payment_status": "paid" if financial == "paid" else "unpaid",
                     "fulfillment_status": fulfillment or "pending",
                     "customer_name": customer_name,
+                    "customer_phone": "".join(ch for ch in (shipping_address.get("phone") or "") if ch.isdigit()) or None,
                     "shipping_address": shipping_address,
                     "delivery_address": address_text,
                     "order_date": o.get("created_at") or now,
+                    "fulfillments": fulfillments,
+                    "dispatched": bool(fulfillments),
+                    "dispatched_at": fulfillments[0]["dispatched_at"] if fulfillments else None,
                     "items": [
                         {"title": item.get("title") or item.get("name"), "variant": item.get("variant_title"),
                          "qty": item.get("quantity", 1), "price": float(item.get("price") or 0),

@@ -166,10 +166,27 @@ async def get_conversation(cid: str, tid: str = Depends(get_tenant_id)):
     if conv.get("customer_id"):
         customer = await db.customers.find_one({"_id": conv["customer_id"], "merchant_id": _oid(tid)})
 
-    orders = []
+    # Match orders by phone: the conversation's WhatsApp number against customer
+    # records and Shopify shipping phones (last 10 digits handle +92/03 formats).
+    mid = _oid(tid)
+    phone_digits = re.sub(r"\D", "", conv.get("customer_phone") or (customer or {}).get("phone") or "")
+    last10 = phone_digits[-10:] if len(phone_digits) >= 10 else None
+    or_clauses = []
     if customer:
+        or_clauses.append({"customer_id": customer["_id"]})
+    if last10:
+        phone_customers = await db.customers.find(
+            {"merchant_id": mid, "phone": {"$regex": last10 + "$"}}).to_list(20)
+        cust_ids = [c["_id"] for c in phone_customers]
+        if cust_ids:
+            or_clauses.append({"customer_id": {"$in": cust_ids}})
+        or_clauses.append({"customer_phone": {"$regex": last10 + "$"}})
+        or_clauses.append({"shipping_address.phone": {"$regex": last10 + "$"}})
+
+    orders = []
+    if or_clauses:
         order_docs = await db.shopify_orders.find(
-            {"merchant_id": _oid(tid), "customer_id": customer["_id"]}
+            {"merchant_id": mid, "$or": or_clauses}
         ).sort("created_at", -1).to_list(5)
         for o in order_docs:
             od = serialize(o)

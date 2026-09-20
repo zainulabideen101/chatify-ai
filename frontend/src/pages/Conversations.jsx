@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/Layout";
 import { Pill, useFetch } from "@/components/bits";
 import { api, rs } from "@/lib/api";
 import { toast } from "sonner";
-import { PaperPlaneRight, UserSwitch, Sparkle, Robot, Check, Checks, Phone, MapPin, Image as ImageIcon, Plus, Trash, Package } from "@phosphor-icons/react";
+import { PaperPlaneRight, UserSwitch, Sparkle, Robot, Check, Checks, Phone, MapPin, Image as ImageIcon, Plus, Trash, Package, Truck, ArrowSquareOut } from "@phosphor-icons/react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const fmtOrderDate = (value) => {
@@ -327,6 +327,19 @@ export default function Conversations() {
                       <span className="text-[11px] text-muted-foreground tnum">{fmtOrderDate(order.order_date || order.created_at)}</span>
                       <Pill tone={order.fulfillment_status}>{order.fulfillment_status || "pending"}</Pill>
                     </div>
+                    {(order.fulfillments || []).map((f, idx) => (
+                      <div key={idx} data-testid={`tracking-${order.id}-${idx}`} className="mt-2 flex items-center justify-between gap-2 rounded-md bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-[11px] text-sky-900">
+                        <span className="inline-flex items-center gap-1.5 min-w-0">
+                          <Truck size={13} className="shrink-0" />
+                          <span className="truncate">{f.tracking_company || "Courier"}{f.tracking_number ? ` · ${f.tracking_number}` : ""}{f.shipment_status ? ` · ${f.shipment_status.replace(/_/g, " ")}` : ""}</span>
+                        </span>
+                        {f.tracking_url && (
+                          <a href={f.tracking_url} target="_blank" rel="noreferrer" data-testid={`tracking-link-${order.id}-${idx}`} className="inline-flex items-center gap-1 font-medium hover:underline shrink-0">
+                            Track <ArrowSquareOut size={11} />
+                          </a>
+                        )}
+                      </div>
+                    ))}
                   </Link>
                 ))}
               </div>

@@ -516,6 +516,21 @@ async def _sync_shopify_order_event(shop_domain: str, topic: str, payload: dict)
         shipping.get("province"), shipping.get("zip"), shipping.get("country"),
     ])) or None
     updates["order_date"] = payload.get("created_at") or now
+    fulfillments = [
+        {
+            "tracking_number": f.get("tracking_number"),
+            "tracking_company": f.get("tracking_company"),
+            "tracking_url": f.get("tracking_url"),
+            "shipment_status": f.get("shipment_status"),
+            "dispatched_at": f.get("created_at"),
+        }
+        for f in (payload.get("fulfillments") or [])
+        if f.get("status") != "cancelled"
+    ]
+    updates["fulfillments"] = fulfillments
+    updates["dispatched"] = bool(fulfillments)
+    updates["dispatched_at"] = fulfillments[0]["dispatched_at"] if fulfillments else None
+    updates["customer_phone"] = "".join(ch for ch in (phone or "") if ch.isdigit()) or None
     customer = await db.customers.find_one({"merchant_id": mid, "phone": phone}) if phone else None
     if not customer:
         inserted = await db.customers.insert_one({

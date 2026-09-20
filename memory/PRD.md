@@ -188,3 +188,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Conversations right panel shows an "Orders" section per customer: order number, items with variant, total, date, and status pill; each card links to `/orders?order=<order_number>`.
 - Orders page honors the deep link: it matches by order number, opens that order's detail panel, and scrolls the row into view (toast if not found).
 - Verified via curl: detail endpoint returns the `orders` array; backend compile + health OK; webpack compiled. Panel renders an empty-state note when the customer has no orders.
+
+
+## 2026-02 — Phone-Based Order Matching + Tracking in Conversations
+- Conversation order panel now matches orders by the customer's phone number (last 10 digits, tolerant of +92/03/space formats) across customer records, `customer_phone`, and `shipping_address.phone` — in addition to direct customer_id.
+- Shopify order sync and webhook now store digit-normalized `customer_phone` and full fulfillment tracking: courier (`tracking_company`), `tracking_number`, `tracking_url`, `shipment_status`, and dispatch timestamp; `dispatched` flag set when fulfillments exist.
+- Conversation order cards show a tracking chip (courier · number · status) with an external Track link; Orders detail panel also lists tracking info.
+- Verified end-to-end: seeded order with +92-formatted phone matched the conversation and returned tracking via the detail endpoint; test data cleaned up.
