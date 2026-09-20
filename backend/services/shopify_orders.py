@@ -105,7 +105,7 @@ async def create_customer_order(merchant_id: str, conversation_id: str | None, a
 
     connection = await db.shopify_connections.find_one({"merchant_id": oid})
     shopify_synced = False
-    if connection and connection.get("access_token_enc") and shopify_service.configured and len(line_items) == len(local_items):
+    if connection and connection.get("access_token_enc") and len(line_items) == len(local_items):
         payload = {
             "line_items": line_items, "financial_status": "pending", "shipping_address": shipping_address,
             "note": "Created by Chatify AI from WhatsApp", "tags": "chatify-ai",
@@ -128,7 +128,7 @@ async def create_customer_order(merchant_id: str, conversation_id: str | None, a
         except (ShopifyNotConfigured, ShopifyAPIError) as exc:
             await db.shopify_orders.update_one({"_id": local_id, "merchant_id": oid},
                                                {"$set": {"sync_status": "sync_pending", "sync_error": str(exc)[:240]}})
-    elif connection and connection.get("access_token_enc") and shopify_service.configured:
+    elif connection and connection.get("access_token_enc"):
         await db.shopify_orders.update_one({"_id": local_id, "merchant_id": oid},
                                            {"$set": {"sync_status": "sync_pending", "sync_error": "Catalog variant sync is required."}})
 
@@ -163,7 +163,7 @@ async def cancel_latest_customer_order(merchant_id: str, customer_phone: str) ->
     await db.customers.update_one({"_id": customer["_id"], "merchant_id": oid}, {"$inc": {"cancelled_orders": 1}})
 
     connection = await db.shopify_connections.find_one({"merchant_id": oid})
-    if connection and connection.get("access_token_enc") and order.get("shopify_order_id") and shopify_service.configured:
+    if connection and connection.get("access_token_enc") and order.get("shopify_order_id"):
         try:
             shopify_order = await shopify_service.cancel_order(
                 connection["shop_domain"], connection["access_token_enc"], order["shopify_order_id"])

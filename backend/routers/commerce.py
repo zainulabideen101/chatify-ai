@@ -176,7 +176,7 @@ async def review_payment(order_id: str, payload: PaymentReviewDecision, tid: str
     shopify_sync = "not_available"
     shopify_sync_error = None
     connection = await db.shopify_connections.find_one({"merchant_id": oid})
-    if connection and connection.get("access_token_enc") and order.get("shopify_order_id") and shopify_service.configured:
+    if connection and connection.get("access_token_enc") and order.get("shopify_order_id"):
         try:
             await shopify_service.update_payment_review(
                 connection["shop_domain"], connection["access_token_enc"],

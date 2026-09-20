@@ -141,3 +141,13 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Removed the custom Pakistan support/base system prompt from `services/ai_agent.py` and reduced `_build_system_prompt` to an empty system message.
 - Removed the custom output sanitization and retry instructions from the agent runtime. The OpenAI GPT-5.4 wrapper and existing tool-calling integration remain enabled.
 - Conversation state and backend tool safeguards remain available independently of the removed prompt instructions.
+
+
+
+## 2026-02 — Manual Shopify Integration
+- Replaced merchant-facing Shopify OAuth/embedded connection with manual Admin API token connection only.
+- `POST /api/integrations/shopify/connect` now accepts a `.myshopify.com` domain and per-store Admin API access token, verifies the token against Shopify `/shop.json`, encrypts it, and stores it tenant-scoped.
+- Shopify catalog sync, order creation/cancellation, and payment review sync now use the manually stored token without server-level Shopify Partner credentials.
+- Settings UI now supports manual domain/token entry, connection replacement, catalog sync, and disconnect; the previous demo Shopify connection was removed for the seeded owner account.
+- Removed Shopify OAuth callback/authorize flow from active integration paths. Webhook HMAC verification is supported when a per-store webhook secret is configured.
+- Runtime verification: backend Python compilation, `/api/health`, authenticated integrations status, and disconnect flow succeeded. No mocked Shopify API responses were added; live connection requires the merchant's real Admin API token.

@@ -9,6 +9,8 @@ export default function Settings() {
   const { data: merchant, setData: setMerchant } = useFetch("/merchant");
   const { data: status, reload } = useFetch("/integrations/status");
   const [shop, setShop] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [connecting, setConnecting] = useState(false);
 
   const saveProfile = async () => {
     const { data } = await api.put("/merchant", {
@@ -18,17 +20,25 @@ export default function Settings() {
   };
 
   const connectShopify = async () => {
-    if (!shop) return toast.error("Enter your .myshopify.com domain");
+    if (!shop.trim() || !accessToken.trim()) return toast.error("Enter your store domain and Admin API access token");
+    setConnecting(true);
     try {
-      const { data } = await api.post("/integrations/shopify/connect", { shop_domain: shop });
-      window.location.href = data.authorize_url;
+      const { data } = await api.post("/integrations/shopify/connect", {
+        shop_domain: shop.trim(), access_token: accessToken.trim(),
+      });
+      toast.success(`${data.shop_name || data.shop_domain} connected`);
+      setShop(""); setAccessToken(""); reload();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Shopify Partner app not configured on server");
-    }
+      toast.error(e.response?.data?.detail || "Shopify could not verify these credentials");
+    } finally { setConnecting(false); }
+  };
+  const disconnectShopify = async () => {
+    try { await api.post("/integrations/shopify/disconnect"); toast.success("Shopify disconnected"); reload(); }
+    catch (e) { toast.error(e.response?.data?.detail || "Could not disconnect Shopify"); }
   };
   const syncShopify = async () => {
-    try { await api.post("/integrations/shopify/sync"); toast.success("Sync started"); reload(); }
-    catch (e) { toast.error(e.response?.data?.detail || "Connect Shopify first"); }
+    try { await api.post("/integrations/shopify/sync"); toast.success("Catalog synced"); reload(); }
+    catch (e) { toast.error(e.response?.data?.detail || "Shopify catalog sync failed"); }
   };
 
   const sh = status?.shopify;
@@ -50,38 +60,40 @@ export default function Settings() {
           <div className="border border-border/60 rounded-lg bg-card p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="h-11 w-11 rounded-lg bg-[#95BF47]/15 flex items-center justify-center"><ShoppingBagOpen weight="fill" size={22} className="text-[#5E8E3E]" /></div>
-              <div className="flex-1"><div className="font-display font-semibold">Shopify</div><div className="text-xs text-muted-foreground">OAuth connection & catalog sync</div></div>
+              <div className="flex-1"><div className="font-display font-semibold">Shopify</div><div className="text-xs text-muted-foreground">Manual Admin API connection & catalog sync</div></div>
               {sh?.connected
                 ? <span className="inline-flex items-center gap-1 text-xs text-green-700"><CheckCircle weight="fill" size={15} /> Connected</span>
                 : <span className="inline-flex items-center gap-1 text-xs text-amber-700"><Warning weight="fill" size={15} /> Not connected</span>}
             </div>
 
-            {!sh?.server_configured && (
-              <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3">
-                Shopify Partner app credentials (SHOPIFY_API_KEY / SHOPIFY_API_SECRET) are not configured on the server. Add them to enable the OAuth flow.
-              </div>
-            )}
+            <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded-md p-3">
+              Create a custom app in Shopify Admin, grant product and order access, then paste its Admin API access token below. No embedded or OAuth connection is used.
+            </div>
 
             {sh?.connected ? (
-              <div className="space-y-2 text-sm">
+              <div className="space-y-3 text-sm">
                 <Row k="Store" v={sh.shop_domain} />
                 <Row k="Products" v={sh.products} />
                 <Row k="Variants" v={sh.variants} />
                 <Row k="Last sync" v={sh.last_sync || "never"} />
                 <Row k="Sync errors" v={sh.sync_errors} />
-                <button data-testid="sync-shopify-btn" onClick={syncShopify} className="mt-2 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-input text-sm hover:bg-muted"><ArrowClockwise size={15} /> Sync catalog</button>
+                <div className="flex gap-2 pt-1">
+                  <button data-testid="sync-shopify-btn" onClick={syncShopify} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-input text-sm hover:bg-muted"><ArrowClockwise size={15} /> Sync catalog</button>
+                  <button data-testid="disconnect-shopify-btn" onClick={disconnectShopify} className="h-9 px-3 rounded-md border border-red-200 text-red-700 text-sm hover:bg-red-50">Disconnect</button>
+                </div>
               </div>
             ) : (
               <div className="space-y-3">
                 <label className="block space-y-1.5"><span className="text-xs font-medium">Shop domain</span><input data-testid="shop-domain" value={shop} onChange={(e) => setShop(e.target.value)} placeholder="my-store.myshopify.com" className="w-full h-10 px-3 rounded-md border border-input text-sm" /></label>
-                <button data-testid="connect-shopify-btn" onClick={connectShopify} className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90">Connect Shopify</button>
+                <label className="block space-y-1.5"><span className="text-xs font-medium">Admin API access token</span><input data-testid="shopify-access-token" type="password" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder="shpat_..." className="w-full h-10 px-3 rounded-md border border-input text-sm" /></label>
+                <button data-testid="connect-shopify-btn" disabled={connecting} onClick={connectShopify} className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">{connecting ? "Verifying..." : "Connect Shopify manually"}</button>
               </div>
             )}
           </div>
         </div>
 
         <div className="text-xs text-muted-foreground border border-border/60 rounded-lg p-4">
-          <b className="text-foreground">Foundation build.</b> Shopify OAuth, Meta WhatsApp, and the GPT-5.4 AI agent are wired as real service interfaces — no mocked API responses. Add the credentials above to activate each integration; the architecture does not need to change.
+          <b className="text-foreground">Manual Shopify connection.</b> Shopify is connected using the store's Admin API access token. The token is encrypted before storage and is never shown again.
         </div>
       </Section>
     </>

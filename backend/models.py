@@ -78,6 +78,7 @@ class TemplateCreate(BaseModel):
 # ---------- Integrations ----------
 class ShopifyConnectRequest(BaseModel):
     shop_domain: str          # e.g. my-store.myshopify.com
+    access_token: str         # Admin API access token from a custom/private app
 
 
 class WhatsAppConnectRequest(BaseModel):

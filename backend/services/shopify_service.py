@@ -1,17 +1,13 @@
-"""Shopify integration service.
+"""Shopify integration service (manual Admin API token mode).
 
-Real integration interface built around Shopify OAuth + Admin API. No mocked
-responses: when API credentials are not configured the methods raise
-`ShopifyNotConfigured` so the merchant UI can surface a proper connect flow.
-
-Wiring real requests requires SHOPIFY_API_KEY / SHOPIFY_API_SECRET (Partner app)
-in the environment; catalog/order sync then runs against the live Admin API.
+The merchant creates a custom app inside their Shopify admin and pastes the
+Admin API access token into Chatify AI. All calls hit the live Admin API with
+that per-store token — no OAuth handshake, no partner-app secret required.
 """
 import os
 import hmac
 import hashlib
 import base64
-from urllib.parse import urlencode
 
 
 class ShopifyNotConfigured(Exception):
@@ -23,78 +19,42 @@ class ShopifyAPIError(Exception):
 
 
 class ShopifyService:
-    API_VERSION = "2024-10"
-
     def __init__(self):
-        self.api_key = os.environ.get("SHOPIFY_API_KEY", "")
-        self.api_secret = os.environ.get("SHOPIFY_API_SECRET", "")
         self.API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
-        self.scopes = os.environ.get("SHOPIFY_SCOPES", "read_products,read_orders,write_orders,read_customers")
 
-    @property
-    def configured(self) -> bool:
-        return bool(self.api_key and self.api_secret)
-
-    def build_authorize_url(self, shop_domain: str, redirect_uri: str, state: str) -> str:
-        """Step 1 of Shopify OAuth: URL to redirect the merchant to."""
-        if not self.configured:
-            raise ShopifyNotConfigured(
-                "Shopify Partner app credentials (SHOPIFY_API_KEY / SHOPIFY_API_SECRET) "
-                "are not configured on the server."
+    async def verify_admin_token(self, shop_domain: str, access_token: str) -> dict:
+        """Call /shop.json to confirm the token is valid and fetch shop metadata."""
+        import requests
+        try:
+            resp = requests.get(
+                f"https://{shop_domain}/admin/api/{self.API_VERSION}/shop.json",
+                headers={"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"},
+                timeout=15,
             )
-        params = {
-            "client_id": self.api_key,
-            "scope": self.scopes,
-            "redirect_uri": redirect_uri,
-            "state": state,
-        }
-        return f"https://{shop_domain}/admin/oauth/authorize?{urlencode(params)}"
+        except requests.RequestException as exc:
+            raise ShopifyAPIError(f"Could not reach Shopify: {exc}") from exc
+        if resp.status_code in (401, 403):
+            raise ShopifyAPIError("Shopify rejected the access token. Verify scopes and re-install the custom app.")
+        if resp.status_code == 404:
+            raise ShopifyAPIError("Shop not found. Double-check the .myshopify.com domain.")
+        if resp.status_code >= 400:
+            raise ShopifyAPIError(f"Shopify returned HTTP {resp.status_code}.")
+        shop = resp.json().get("shop") or {}
+        return {"name": shop.get("name"), "email": shop.get("email"), "domain": shop.get("myshopify_domain") or shop_domain}
 
-    def verify_hmac(self, query_params: dict) -> bool:
-        """Verify the HMAC on Shopify OAuth callback / webhook query params."""
-        if not self.configured:
-            return False
-        provided = query_params.get("hmac", "")
-        pairs = "&".join(
-            f"{k}={v}" for k, v in sorted(query_params.items()) if k != "hmac"
-        )
-        digest = hmac.new(
-            self.api_secret.encode(), pairs.encode(), hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(digest, provided)
-
-    def verify_webhook(self, body: bytes, hmac_header: str) -> bool:
-        if not self.configured:
+    def verify_webhook(self, body: bytes, hmac_header: str, webhook_secret: str | None = None) -> bool:
+        """Verify Shopify webhook HMAC using the merchant's per-connection webhook secret."""
+        if not webhook_secret:
             return False
         digest = base64.b64encode(
-            hmac.new(self.api_secret.encode(), body, hashlib.sha256).digest()
+            hmac.new(webhook_secret.encode(), body, hashlib.sha256).digest()
         ).decode()
         return hmac.compare_digest(digest, hmac_header or "")
 
-    async def exchange_code(self, shop_domain: str, code: str) -> str:
-        """Exchange the OAuth code for a permanent access token (live call)."""
-        if not self.configured:
-            raise ShopifyNotConfigured("Shopify credentials not configured.")
-        import requests
-        resp = requests.post(
-            f"https://{shop_domain}/admin/oauth/access_token",
-            json={"client_id": self.api_key, "client_secret": self.api_secret, "code": code},
-            timeout=20,
-        )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
-
     async def sync_catalog(self, shop_domain: str, access_token_enc: str, merchant_id: str) -> dict:
-        """Pull products/variants from Shopify Admin API into the tenant catalog.
-
-        Requires a live connection. Raises when not configured so we never
-        return fake catalog data.
-        """
-        if not self.configured or not access_token_enc:
-            raise ShopifyNotConfigured(
-                "Cannot sync catalog: connect a Shopify store first. "
-                "Live sync runs once SHOPIFY_API_KEY/SECRET are set and a store is authorized."
-            )
+        """Pull products/variants from Shopify Admin API into the tenant catalog."""
+        if not access_token_enc:
+            raise ShopifyNotConfigured("Connect a Shopify store first.")
         import requests
         from bson import ObjectId
         from datetime import datetime, timezone
@@ -145,8 +105,8 @@ class ShopifyService:
         return {"synced": True, "products": products, "variants": variants, "errors": errors}
 
     async def create_order(self, shop_domain: str, access_token_enc: str, payload: dict) -> dict:
-        """Create an order via Shopify Admin API. Never fake success."""
-        if not self.configured or not access_token_enc:
+        """Create an order via Shopify Admin API."""
+        if not access_token_enc:
             raise ShopifyNotConfigured("Cannot create Shopify order: no authorized Shopify connection.")
         import requests
         from services.crypto import decrypt_secret
@@ -158,7 +118,7 @@ class ShopifyService:
                 json={"order": payload}, timeout=30)
         except requests.RequestException as exc:
             raise ShopifyAPIError("Shopify order creation could not be reached.") from exc
-        if resp.status_code == 401 or resp.status_code == 403:
+        if resp.status_code in (401, 403):
             raise ShopifyAPIError("Shopify rejected the store access token or order permission.")
         if resp.status_code == 429:
             raise ShopifyAPIError("Shopify rate-limited order creation. Please retry shortly.")
@@ -168,7 +128,7 @@ class ShopifyService:
 
     async def cancel_order(self, shop_domain: str, access_token_enc: str, shopify_order_id: str) -> dict:
         """Cancel an open Shopify order through the official Admin API."""
-        if not self.configured or not access_token_enc:
+        if not access_token_enc:
             raise ShopifyNotConfigured("Cannot cancel Shopify order: no authorized Shopify connection.")
         import requests
         from services.crypto import decrypt_secret
@@ -180,7 +140,7 @@ class ShopifyService:
                 json={"reason": "customer", "email": True}, timeout=30)
         except requests.RequestException as exc:
             raise ShopifyAPIError("Shopify cancellation could not be reached.") from exc
-        if resp.status_code == 401 or resp.status_code == 403:
+        if resp.status_code in (401, 403):
             raise ShopifyAPIError("Shopify rejected the store access token or order cancellation permission.")
         if resp.status_code == 429:
             raise ShopifyAPIError("Shopify rate-limited cancellation. Please retry shortly.")
@@ -188,17 +148,11 @@ class ShopifyService:
             raise ShopifyAPIError("Shopify rejected the cancellation because the order may already be closed or cancelled.")
         return resp.json().get("order", {})
 
-
-
     async def update_payment_review(self, shop_domain: str, access_token_enc: str,
                                     shopify_order_id: str, approved: bool,
                                     amount: float, note: str) -> dict:
-        """Reflect a seller's payment review in Shopify.
-
-        Approval records a successful manual sale transaction. Rejection adds a
-        seller note and tag so the Shopify order history reflects the decision.
-        """
-        if not self.configured or not access_token_enc:
+        """Reflect a seller's payment review decision in Shopify."""
+        if not access_token_enc:
             raise ShopifyNotConfigured("Cannot update Shopify payment review without an authorized store.")
         import requests
         from services.crypto import decrypt_secret

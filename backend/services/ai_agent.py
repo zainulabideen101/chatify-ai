@@ -280,7 +280,16 @@ async def note_sales_refusal(merchant_id: str, conversation_id: str, customer_me
     return True
 
 
+class ToolRegistry:
+    """Compatibility surface for the inbox status endpoint; no tools are sent to the LLM."""
+    def list(self) -> list[dict]:
+        return []
+
+
 class AIAgentService:
+    def __init__(self):
+        self.tools = ToolRegistry()
+
     @property
     def llm_connected(self) -> bool:
         return bool(os.environ.get("OPENAI_API_KEY"))

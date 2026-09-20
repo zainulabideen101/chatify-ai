@@ -66,9 +66,11 @@ async def integrations_status(tid: str = Depends(get_tenant_id)):
         "shopify": {
             "connected": bool(shopify),
             "shop_domain": shopify.get("shop_domain") if shopify else None,
+            "shop_name": shopify.get("shop_name") if shopify else None,
             "last_sync": shopify.get("last_sync") if shopify else None,
             "sync_errors": shopify.get("sync_errors", 0) if shopify else 0,
-            "server_configured": shopify_service.configured,
+            "connection_type": shopify.get("connection_type", "manual") if shopify else None,
+            "server_configured": True,
             "products": product_count,
             "variants": variant_count,
         },
@@ -89,43 +91,46 @@ async def integrations_status(tid: str = Depends(get_tenant_id)):
     }
 
 
-# ---------- Shopify ----------
+# ---------- Shopify (manual admin API token connection) ----------
 @router.post("/shopify/connect")
-async def shopify_connect(payload: ShopifyConnectRequest, request: Request, tid: str = Depends(get_tenant_id)):
-    state = secrets.token_urlsafe(24)
-    await db.oauth_states.insert_one({
-        "state": state, "merchant_id": ObjectId(tid),
-        "shop_domain": payload.shop_domain, "created_at": iso_now(),
-    })
-    backend = str(request.base_url).rstrip("/")
-    redirect_uri = f"{backend}/api/integrations/shopify/callback"
+async def shopify_connect(payload: ShopifyConnectRequest, tid: str = Depends(get_tenant_id)):
+    """Manually store a merchant's Shopify shop domain + Admin API access token.
+
+    The merchant obtains this token by creating a custom app inside their Shopify
+    admin (Settings → Apps → Develop apps → Create app → Install & reveal token).
+    No OAuth handshake is performed.
+    """
+    shop_domain = (payload.shop_domain or "").strip().lower()
+    access_token = (payload.access_token or "").strip()
+    if not shop_domain.endswith(".myshopify.com"):
+        raise HTTPException(status_code=400, detail="Enter your <store>.myshopify.com domain.")
+    if len(access_token) < 20:
+        raise HTTPException(status_code=400, detail="Enter a valid Shopify Admin API access token.")
+
     try:
-        url = shopify_service.build_authorize_url(payload.shop_domain, redirect_uri, state)
+        verified = await shopify_service.verify_admin_token(shop_domain, access_token)
     except ShopifyNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
-    await log_action(tid, "shopify_connect_initiated", actor="merchant", detail={"shop": payload.shop_domain})
-    return {"authorize_url": url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Shopify rejected the token: {e}")
 
-
-@router.get("/shopify/callback")
-async def shopify_callback(request: Request):
-    params = dict(request.query_params)
-    if not shopify_service.verify_hmac(params):
-        raise HTTPException(status_code=400, detail="Invalid HMAC / Shopify not configured")
-    st = await db.oauth_states.find_one({"state": params.get("state")})
-    if not st:
-        raise HTTPException(status_code=400, detail="Invalid state")
-    token = await shopify_service.exchange_code(params["shop"], params["code"])
     await db.shopify_connections.update_one(
-        {"merchant_id": st["merchant_id"]},
-        {"$set": {"merchant_id": st["merchant_id"], "shop_domain": params["shop"],
-                  "access_token_enc": encrypt_secret(token), "connected_at": iso_now(),
-                  "last_sync": None, "sync_errors": 0}},
+        {"merchant_id": ObjectId(tid)},
+        {"$set": {
+            "merchant_id": ObjectId(tid),
+            "shop_domain": shop_domain,
+            "access_token_enc": encrypt_secret(access_token),
+            "connection_type": "manual",
+            "shop_name": verified.get("name"),
+            "shop_email": verified.get("email"),
+            "connected_at": iso_now(),
+            "last_sync": None, "sync_errors": 0,
+        }},
         upsert=True,
     )
-    await log_action(str(st["merchant_id"]), "shopify_connected", actor="merchant",
-                     detail={"shop": params["shop"]})
-    return {"ok": True, "shop": params["shop"]}
+    await log_action(tid, "shopify_connected", actor="merchant",
+                     detail={"shop": shop_domain, "type": "manual"})
+    return {"ok": True, "shop_domain": shop_domain, "shop_name": verified.get("name")}
 
 
 @router.post("/shopify/disconnect")
@@ -498,10 +503,22 @@ async def _sync_shopify_order_event(shop_domain: str, topic: str, payload: dict)
 async def shopify_webhook(request: Request, background: BackgroundTasks):
     body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256", "")
-    if not shopify_service.verify_webhook(body, hmac_header):
-        raise HTTPException(status_code=401, detail="Invalid HMAC")
-    topic = request.headers.get("X-Shopify-Topic", "unknown")
     shop_domain = request.headers.get("X-Shopify-Shop-Domain", "").lower()
+    # Manual-mode webhook verification uses a per-connection secret set by the merchant.
+    # If the merchant hasn't provided one, we accept the payload (they may still be
+    # configuring webhooks) but tag the record for review.
+    connection = await db.shopify_connections.find_one({"shop_domain": shop_domain})
+    secret_enc = connection.get("webhook_secret_enc") if connection else None
+    verified = False
+    if secret_enc:
+        try:
+            secret = decrypt_secret(secret_enc)
+            verified = shopify_service.verify_webhook(body, hmac_header, secret)
+        except Exception:
+            verified = False
+        if not verified:
+            raise HTTPException(status_code=401, detail="Invalid HMAC")
+    topic = request.headers.get("X-Shopify-Topic", "unknown")
     payload = await request.json()
     event_key = hashlib.sha256(body).hexdigest()
     inserted = await db.webhook_events.update_one(
