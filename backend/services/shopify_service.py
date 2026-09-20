@@ -1,13 +1,16 @@
-"""Shopify integration service (manual Admin API token mode).
+"""Shopify integration service (per-merchant Client ID + Client Secret, OAuth).
 
-The merchant creates a custom app inside their Shopify admin and pastes the
-Admin API access token into Chatify AI. All calls hit the live Admin API with
-that per-store token — no OAuth handshake, no partner-app secret required.
+Each merchant pastes the Client ID and Client Secret of their own Shopify app
+(Dev Dashboard → app Settings). Chatify AI then runs the authorization-code
+grant: redirect to the store's /admin/oauth/authorize, verify the HMAC on the
+callback, and exchange the code for a permanent offline access token. All Admin
+API calls use that encrypted per-store token.
 """
 import os
 import hmac
 import hashlib
 import base64
+from urllib.parse import urlencode
 
 
 class ShopifyNotConfigured(Exception):
@@ -21,6 +24,38 @@ class ShopifyAPIError(Exception):
 class ShopifyService:
     def __init__(self):
         self.API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
+        self.scopes = os.environ.get("SHOPIFY_SCOPES", "read_products,read_orders,write_orders,read_customers")
+
+    def build_authorize_url(self, shop_domain: str, client_id: str, redirect_uri: str, state: str) -> str:
+        """Step 1 of the authorization-code grant: URL the merchant is sent to."""
+        params = {
+            "client_id": client_id,
+            "scope": self.scopes,
+            "redirect_uri": redirect_uri,
+            "state": state,
+        }
+        return f"https://{shop_domain}/admin/oauth/authorize?{urlencode(params)}"
+
+    def verify_hmac(self, query_params: dict, client_secret: str) -> bool:
+        """Verify the HMAC on the Shopify OAuth callback query params."""
+        provided = query_params.get("hmac", "")
+        pairs = "&".join(
+            f"{k}={v}" for k, v in sorted(query_params.items()) if k != "hmac"
+        )
+        digest = hmac.new(client_secret.encode(), pairs.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(digest, provided)
+
+    async def exchange_code(self, shop_domain: str, client_id: str, client_secret: str, code: str) -> str:
+        """Exchange the authorization code for a permanent offline access token."""
+        import requests
+        resp = requests.post(
+            f"https://{shop_domain}/admin/oauth/access_token",
+            json={"client_id": client_id, "client_secret": client_secret, "code": code},
+            timeout=20,
+        )
+        if resp.status_code >= 400:
+            raise ShopifyAPIError(f"Shopify rejected the token exchange (HTTP {resp.status_code}).")
+        return resp.json()["access_token"]
 
     async def verify_admin_token(self, shop_domain: str, access_token: str) -> dict:
         """Call /shop.json to confirm the token is valid and fetch shop metadata."""

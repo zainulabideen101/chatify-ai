@@ -151,3 +151,11 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Settings UI now supports manual domain/token entry, connection replacement, catalog sync, and disconnect; the previous demo Shopify connection was removed for the seeded owner account.
 - Removed Shopify OAuth callback/authorize flow from active integration paths. Webhook HMAC verification is supported when a per-store webhook secret is configured.
 - Runtime verification: backend Python compilation, `/api/health`, authenticated integrations status, and disconnect flow succeeded. No mocked Shopify API responses were added; live connection requires the merchant's real Admin API token.
+
+
+## 2026-02 — Shopify Client ID / Client Secret Connection
+- Replaced the manual Admin-API-token connect form with a per-merchant Client ID + Client Secret flow.
+- Settings UI now collects shop domain, Client ID, and Client Secret; credentials are stored encrypted on a short-lived OAuth state record.
+- `POST /api/integrations/shopify/connect` returns the store's `/admin/oauth/authorize` URL; Shopify redirects back to `GET /api/integrations/shopify/callback`, which verifies the HMAC with the merchant's Client Secret and exchanges the code for a permanent offline access token.
+- The resulting access token is encrypted and tenant-scoped; catalog sync, order create/cancel, and payment-review sync reuse it unchanged.
+- Callback redirects to `/settings?shopify=connected` for a success toast. Verified: connect endpoint builds a correct HTTPS authorize URL, invalid callback state returns 400, backend healthy.
