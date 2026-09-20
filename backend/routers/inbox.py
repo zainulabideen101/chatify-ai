@@ -8,6 +8,7 @@ from database import db, serialize, serialize_list
 from deps import get_tenant_id
 from models import NewConversationRequest, SendMessageRequest, iso_now
 from services.whatsapp_service import whatsapp_service
+from services.shopify_service import shopify_service
 from services.ai_agent import ai_agent
 from services.conversation_ai import generate_and_send_ai_reply
 from audit import log_action
@@ -166,32 +167,20 @@ async def get_conversation(cid: str, tid: str = Depends(get_tenant_id)):
     if conv.get("customer_id"):
         customer = await db.customers.find_one({"_id": conv["customer_id"], "merchant_id": _oid(tid)})
 
-    # Match orders by phone: the conversation's WhatsApp number against customer
-    # records and Shopify shipping phones (last 10 digits handle +92/03 formats).
+    # Live-fetch the customer's recent orders from Shopify by phone (no local DB
+    # lookup), so this stays fresh even when the local Orders page only keeps
+    # the 100 most recent orders per merchant.
     mid = _oid(tid)
-    phone_digits = re.sub(r"\D", "", conv.get("customer_phone") or (customer or {}).get("phone") or "")
-    last10 = phone_digits[-10:] if len(phone_digits) >= 10 else None
-    or_clauses = []
-    if customer:
-        or_clauses.append({"customer_id": customer["_id"]})
-    if last10:
-        phone_customers = await db.customers.find(
-            {"merchant_id": mid, "phone": {"$regex": last10 + "$"}}).to_list(20)
-        cust_ids = [c["_id"] for c in phone_customers]
-        if cust_ids:
-            or_clauses.append({"customer_id": {"$in": cust_ids}})
-        or_clauses.append({"customer_phone": {"$regex": last10 + "$"}})
-        or_clauses.append({"shipping_address.phone": {"$regex": last10 + "$"}})
-
-    orders = []
-    if or_clauses:
-        order_docs = await db.shopify_orders.find(
-            {"merchant_id": mid, "$or": or_clauses}
-        ).sort("created_at", -1).to_list(5)
-        for o in order_docs:
-            od = serialize(o)
-            od.pop("payment_screenshot_path", None)
-            orders.append(od)
+    phone = conv.get("customer_phone") or (customer or {}).get("phone") or ""
+    orders: list = []
+    connection = await db.shopify_connections.find_one({"merchant_id": mid})
+    if connection and phone:
+        try:
+            token = await shopify_service.ensure_access_token(connection)
+            orders = await shopify_service.list_orders_by_phone(
+                connection["shop_domain"], token, phone, limit=5)
+        except Exception:
+            orders = []
     return {**serialize(conv), "messages": serialize_list(messages),
             "customer": serialize(customer), "orders": orders}
 

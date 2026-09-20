@@ -112,6 +112,7 @@ async def get_customer(customer_id: str, tid: str = Depends(get_tenant_id)):
 # ---------- Orders ----------
 @router.get("/orders")
 async def list_orders(tid: str = Depends(get_tenant_id), limit: int = 100):
+    limit = max(1, min(limit, 100))  # hard cap: only the 100 most recent orders are kept locally
     docs = await db.shopify_orders.find({"merchant_id": _oid(tid)}).sort("created_at", -1).limit(limit).to_list(limit)
     return [_safe_order(doc) for doc in docs]
 

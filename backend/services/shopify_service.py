@@ -298,6 +298,130 @@ class ShopifyService:
             {"merchant_id": oid}, {"$set": {"last_order_sync": now}})
         return {"synced": True, "orders_created": created, "orders_updated": updated}
 
+    async def list_orders_by_phone(self, shop_domain: str, access_token: str, phone: str, limit: int = 5) -> list[dict]:
+        """Fetch a customer's recent orders live from Shopify, matched by phone.
+
+        Uses /customers/search.json to find the Shopify customer(s) by digit-only
+        phone (Pakistani 92... form), then fetches each customer's most recent
+        orders including fulfillments/tracking. Returns [] when nothing matches.
+        """
+        if not access_token or not phone:
+            return []
+        import re
+        import requests
+        digits = re.sub(r"\D", "", phone)
+        if len(digits) < 10:
+            return []
+        last10 = digits[-10:]
+        headers = {"X-Shopify-Access-Token": access_token}
+        # Shopify's customer search matches suffixes reasonably well; try a few
+        # common Pakistani formats so leading-zero / country-code variations hit.
+        queries = [f"phone:*{last10}", f"phone:0{last10[-9:]}", f"phone:+92{last10[-9:]}"]
+        seen_customer_ids: set[str] = set()
+        orders: list[dict] = []
+        for q in queries:
+            try:
+                r = requests.get(
+                    f"https://{shop_domain}/admin/api/{self.API_VERSION}/customers/search.json",
+                    headers=headers, params={"query": q, "limit": 5}, timeout=15,
+                )
+            except requests.RequestException:
+                continue
+            if r.status_code >= 400:
+                continue
+            for c in r.json().get("customers", []):
+                cid = str(c.get("id"))
+                if cid in seen_customer_ids:
+                    continue
+                seen_customer_ids.add(cid)
+                try:
+                    o = requests.get(
+                        f"https://{shop_domain}/admin/api/{self.API_VERSION}/customers/{cid}/orders.json",
+                        headers=headers, params={"status": "any", "limit": limit}, timeout=15,
+                    )
+                except requests.RequestException:
+                    continue
+                if o.status_code >= 400:
+                    continue
+                orders.extend(o.json().get("orders", []))
+                if len(orders) >= limit:
+                    break
+            if len(orders) >= limit:
+                break
+        by_id: dict[str, dict] = {}
+        for o in orders:
+            by_id[str(o["id"])] = o
+        merged = sorted(by_id.values(), key=lambda x: x.get("created_at") or "", reverse=True)[:limit]
+        return [self._project_order_card(o) for o in merged]
+
+    @staticmethod
+    def _project_order_card(o: dict) -> dict:
+        shipping = o.get("shipping_address") or {}
+        customer = o.get("customer") or {}
+        fulfillments = [
+            {
+                "tracking_number": f.get("tracking_number"),
+                "tracking_company": f.get("tracking_company"),
+                "tracking_url": f.get("tracking_url"),
+                "shipment_status": f.get("shipment_status"),
+                "dispatched_at": f.get("created_at"),
+            }
+            for f in (o.get("fulfillments") or []) if f.get("status") != "cancelled"
+        ]
+        return {
+            "id": str(o.get("id")),
+            "shopify_order_id": str(o.get("id")),
+            "order_number": o.get("order_number") or o.get("name") or str(o.get("id")),
+            "total": float(o.get("total_price") or 0),
+            "fulfillment_status": ("cancelled" if o.get("cancelled_at") else (o.get("fulfillment_status") or "pending")),
+            "payment_status": "paid" if o.get("financial_status") == "paid" else "unpaid",
+            "customer_name": shipping.get("name") or " ".join(filter(None, [customer.get("first_name"), customer.get("last_name")])).strip() or None,
+            "delivery_address": ", ".join(filter(None, [shipping.get("address1"), shipping.get("address2"), shipping.get("city"), shipping.get("province"), shipping.get("zip"), shipping.get("country")])) or None,
+            "order_date": o.get("created_at"),
+            "created_at": o.get("created_at"),
+            "items": [
+                {"title": li.get("title") or li.get("name"), "variant": li.get("variant_title"),
+                 "qty": li.get("quantity", 1), "price": float(li.get("price") or 0)}
+                for li in (o.get("line_items") or [])
+            ],
+            "fulfillments": fulfillments,
+            "dispatched": bool(fulfillments),
+        }
+
+    def build_webhook_topics(self) -> list[str]:
+        return ["orders/create", "orders/updated", "orders/paid", "orders/cancelled",
+                "orders/fulfilled", "fulfillments/create", "fulfillments/update"]
+
+    async def register_webhooks(self, shop_domain: str, access_token: str, callback_url: str) -> dict:
+        """Register the order/fulfillment webhooks required for auto-sync."""
+        import requests
+        headers = {"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"}
+        created = 0
+        try:
+            existing_resp = requests.get(
+                f"https://{shop_domain}/admin/api/{self.API_VERSION}/webhooks.json",
+                headers=headers, timeout=15,
+            )
+            existing = existing_resp.json().get("webhooks", []) if existing_resp.status_code < 400 else []
+        except requests.RequestException:
+            existing = []
+        by_topic = {w.get("topic"): w for w in existing if w.get("address") == callback_url}
+        for topic in self.build_webhook_topics():
+            if topic in by_topic:
+                continue
+            try:
+                resp = requests.post(
+                    f"https://{shop_domain}/admin/api/{self.API_VERSION}/webhooks.json",
+                    headers=headers,
+                    json={"webhook": {"topic": topic, "address": callback_url, "format": "json"}},
+                    timeout=15,
+                )
+                if resp.status_code < 400:
+                    created += 1
+            except requests.RequestException:
+                continue
+        return {"created": created, "already_present": len(by_topic)}
+
     async def create_order(self, shop_domain: str, access_token: str, payload: dict) -> dict:
         """Create an order via Shopify Admin API."""
         import requests

@@ -93,7 +93,7 @@ async def integrations_status(tid: str = Depends(get_tenant_id)):
 
 # ---------- Shopify (per-merchant Client ID/Secret, client-credentials grant) ----------
 @router.post("/shopify/connect")
-async def shopify_connect(payload: ShopifyConnectRequest, tid: str = Depends(get_tenant_id)):
+async def shopify_connect(payload: ShopifyConnectRequest, request: Request, tid: str = Depends(get_tenant_id)):
     """Connect directly with the merchant's Shopify app Client ID and Client Secret.
 
     No OAuth redirect: the credentials are exchanged server-side via Shopify's
@@ -117,6 +117,16 @@ async def shopify_connect(payload: ShopifyConnectRequest, tid: str = Depends(get
 
     from datetime import datetime, timedelta, timezone
     expires_at = (datetime.now(timezone.utc) + timedelta(seconds=creds["expires_in"])).isoformat()
+    # Auto-register order + fulfillment webhooks so new activity syncs without a button press.
+    backend = str(request.base_url).rstrip("/")
+    if backend.startswith("http://") and "localhost" not in backend and "127.0.0.1" not in backend:
+        backend = "https://" + backend[len("http://"):]
+    callback_url = f"{backend}/api/webhooks/shopify"
+    webhook_result = {"created": 0, "already_present": 0}
+    try:
+        webhook_result = await shopify_service.register_webhooks(shop_domain, creds["access_token"], callback_url)
+    except Exception:
+        pass
     await db.shopify_connections.update_one(
         {"merchant_id": ObjectId(tid)},
         {"$set": {
@@ -124,19 +134,23 @@ async def shopify_connect(payload: ShopifyConnectRequest, tid: str = Depends(get
             "shop_domain": shop_domain,
             "client_id_enc": encrypt_secret(client_id),
             "client_secret_enc": encrypt_secret(client_secret),
+            "webhook_secret_enc": encrypt_secret(client_secret),
             "access_token_enc": encrypt_secret(creds["access_token"]),
             "token_expires_at": expires_at,
             "connection_type": "client_credentials",
             "shop_name": shop_info.get("name"),
             "shop_email": shop_info.get("email"),
             "connected_at": iso_now(),
+            "webhook_callback_url": callback_url,
+            "webhooks_registered": webhook_result.get("created", 0) + webhook_result.get("already_present", 0),
             "last_sync": None, "sync_errors": 0,
         }},
         upsert=True,
     )
     await log_action(tid, "shopify_connected", actor="merchant",
-                     detail={"shop": shop_domain, "type": "client_credentials"})
-    return {"ok": True, "shop_domain": shop_domain, "shop_name": shop_info.get("name")}
+                     detail={"shop": shop_domain, "type": "client_credentials", **webhook_result})
+    return {"ok": True, "shop_domain": shop_domain, "shop_name": shop_info.get("name"),
+            "webhooks": webhook_result}
 
 
 @router.post("/shopify/disconnect")
@@ -553,6 +567,13 @@ async def _sync_shopify_order_event(shop_domain: str, topic: str, payload: dict)
         ], "created_at": payload.get("created_at") or now,
     })
     await db.shopify_orders.insert_one(updates)
+    # Keep only the 100 most recent local orders per merchant to stay lightweight.
+    cutoff = await db.shopify_orders.find(
+        {"merchant_id": mid}).sort("created_at", -1).skip(100).to_list(1)
+    if cutoff:
+        await db.shopify_orders.delete_many(
+            {"merchant_id": mid, "created_at": {"$lte": cutoff[0].get("created_at") or ""}}
+        )
 
 
 

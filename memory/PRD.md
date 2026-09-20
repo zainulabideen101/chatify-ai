@@ -202,3 +202,11 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Confirmed Shopify returns fulfillments with tracking_number/company/url for this store's client-credentials token (no extra scope needed).
 - Fixed conversation order cards: tracking chip now renders as its own row below the order details (no longer nested inside the order link, so Track opens the courier page without triggering order navigation).
 - Phone matching verified against live data (e.g. conversation 923090344627 → 1 dispatched order with tracking).
+
+
+## 2026-02 — Live Shopify Order Lookup + Auto-Sync Webhooks + 100-Order Cap
+- **Conversations panel**: order lookup is now a live Shopify Admin API call by phone via `list_orders_by_phone` (customers/search → customers/{id}/orders), returning up to 5 recent orders with fulfillments/tracking. Zero dependence on local DB — accurate even for old orders that are no longer stored locally.
+- **Auto-sync**: `POST /api/integrations/shopify/connect` now programmatically registers `orders/create`, `orders/updated`, `orders/paid`, `orders/cancelled`, `orders/fulfilled`, `fulfillments/create`, `fulfillments/update` webhooks pointing at `/api/webhooks/shopify`, and stores the app's `client_secret` as the webhook HMAC secret so signatures verify without extra config.
+- **100 most-recent cap** on `db.shopify_orders`: every webhook insert prunes the merchant's orders past the 100th newest. Local `/api/orders` list hard-caps its limit to 100.
+- One-time cleanup: pruned the Turbo Gear merchant from 2188 → 100 orders.
+- Verified with the live Shopify token: `list_orders_by_phone` returned the correct order (11598, Rs 999, PostEx tracking 22336670007560) for all three phone formats: `+92 309 0344627`, `923090344627`, `03090344627`.
