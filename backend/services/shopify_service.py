@@ -198,15 +198,42 @@ class ShopifyService:
                 shopify_id = str(o["id"])
                 financial = o.get("financial_status")
                 fulfillment = o.get("fulfillment_status")
+                shipping = o.get("shipping_address") or {}
+                customer_data = o.get("customer") or {}
+                customer_name = (
+                    shipping.get("name")
+                    or " ".join(filter(None, [customer_data.get("first_name"), customer_data.get("last_name")])).strip()
+                    or None
+                )
+                shipping_address = {
+                    "name": shipping.get("name"),
+                    "address1": shipping.get("address1"),
+                    "address2": shipping.get("address2"),
+                    "city": shipping.get("city"),
+                    "province": shipping.get("province"),
+                    "zip": shipping.get("zip"),
+                    "country": shipping.get("country"),
+                    "phone": shipping.get("phone") or customer_data.get("phone"),
+                }
+                address_text = ", ".join(filter(None, [
+                    shipping.get("address1"), shipping.get("address2"),
+                    shipping.get("city"), shipping.get("province"),
+                    shipping.get("zip"), shipping.get("country"),
+                ])) or None
                 updates = {
                     "shopify_order_id": shopify_id, "shopify_synced_at": now,
                     "order_number": o.get("order_number") or o.get("name") or shopify_id,
                     "total": float(o.get("total_price") or 0),
                     "payment_status": "paid" if financial == "paid" else "unpaid",
                     "fulfillment_status": fulfillment or "pending",
+                    "customer_name": customer_name,
+                    "shipping_address": shipping_address,
+                    "delivery_address": address_text,
+                    "order_date": o.get("created_at") or now,
                     "items": [
                         {"title": item.get("title") or item.get("name"), "variant": item.get("variant_title"),
-                         "qty": item.get("quantity", 1), "price": float(item.get("price") or 0)}
+                         "qty": item.get("quantity", 1), "price": float(item.get("price") or 0),
+                         "sku": item.get("sku"), "variant_id": item.get("variant_id")}
                         for item in o.get("line_items", [])
                     ],
                 }
@@ -220,15 +247,14 @@ class ShopifyService:
                         {"_id": local["_id"], "merchant_id": oid}, {"$set": updates})
                     updated += 1
                     continue
-                shipping = o.get("shipping_address") or {}
-                customer_data = o.get("customer") or {}
-                phone = shipping.get("phone") or customer_data.get("phone") or ""
+                phone = shipping_address.get("phone") or ""
                 customer = await db.customers.find_one({"merchant_id": oid, "phone": phone}) if phone else None
                 if not customer:
                     inserted = await db.customers.insert_one({
                         "merchant_id": oid,
-                        "name": shipping.get("name") or customer_data.get("first_name") or phone or "Shopify customer",
-                        "phone": phone, "preferred_language": None, "total_orders": 0,
+                        "name": customer_name or phone or "Shopify customer",
+                        "phone": phone, "city": shipping.get("city"),
+                        "preferred_language": None, "total_orders": 0,
                         "delivered_orders": 0, "cancelled_orders": 0, "refused_orders": 0,
                         "failed_deliveries": 0, "created_at": now,
                     })

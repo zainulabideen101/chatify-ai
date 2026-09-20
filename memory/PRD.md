@@ -174,3 +174,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Products page: "Sync products from Shopify" button (calls `/shopify/sync`, toasts counts, reloads) + live "Total products: N" counter.
 - Orders page: "Sync from Shopify" button (calls `/shopify/sync-orders`, toasts new/updated counts, reloads) + "Total orders: N" counter.
 - Sync is manual-only (button press), per user requirement. Verified: both endpoints return 400 without a connection, backend healthy, both pages render with buttons/counters via browser smoke test. Live sync awaits real Shopify credentials.
+
+
+## 2026-02 — Richer Shopify Order Fields
+- Order sync (button) and webhook handler now also store: `customer_name`, structured `shipping_address` (+ formatted `delivery_address`), `order_date`, and per-item `sku`/`variant_id` alongside `variant`.
+- Customer records created from sync now also capture `city`.
+- Orders page: new Customer and Date columns; item lines show the variant ("Black Hoodie (Medium) ×1"); payment detail panel shows Customer, Address, and Order date rows.
+- Verified: backend compile + health OK, webpack compiled, Orders page renders new columns via browser smoke test. Existing local orders show "—" for customer until a real Shopify sync populates the fields.

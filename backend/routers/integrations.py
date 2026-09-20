@@ -499,6 +499,23 @@ async def _sync_shopify_order_event(shop_domain: str, topic: str, payload: dict)
     shipping = payload.get("shipping_address") or {}
     customer_data = payload.get("customer") or {}
     phone = shipping.get("phone") or customer_data.get("phone") or ""
+    customer_name = (
+        shipping.get("name")
+        or " ".join(filter(None, [customer_data.get("first_name"), customer_data.get("last_name")])).strip()
+        or None
+    )
+    updates["customer_name"] = customer_name
+    updates["shipping_address"] = {
+        "name": shipping.get("name"), "address1": shipping.get("address1"),
+        "address2": shipping.get("address2"), "city": shipping.get("city"),
+        "province": shipping.get("province"), "zip": shipping.get("zip"),
+        "country": shipping.get("country"), "phone": phone,
+    }
+    updates["delivery_address"] = ", ".join(filter(None, [
+        shipping.get("address1"), shipping.get("address2"), shipping.get("city"),
+        shipping.get("province"), shipping.get("zip"), shipping.get("country"),
+    ])) or None
+    updates["order_date"] = payload.get("created_at") or now
     customer = await db.customers.find_one({"merchant_id": mid, "phone": phone}) if phone else None
     if not customer:
         inserted = await db.customers.insert_one({
