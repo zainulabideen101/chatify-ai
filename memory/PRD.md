@@ -195,3 +195,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - Shopify order sync and webhook now store digit-normalized `customer_phone` and full fulfillment tracking: courier (`tracking_company`), `tracking_number`, `tracking_url`, `shipment_status`, and dispatch timestamp; `dispatched` flag set when fulfillments exist.
 - Conversation order cards show a tracking chip (courier · number · status) with an external Track link; Orders detail panel also lists tracking info.
 - Verified end-to-end: seeded order with +92-formatted phone matched the conversation and returned tracking via the detail endpoint; test data cleaned up.
+
+
+## 2026-02 — Live Tracking Data + Panel Fix
+- Root cause of "no tracking visible": the store's first order sync ran before fulfillment fields existed. Re-ran full sync for the live store (Turbo Gear / qxcrmc-in.myshopify.com, account zaheer2@gmail.com): 2186 orders updated, 1804 dispatched orders now carry courier/tracking data (PostEx etc.).
+- Confirmed Shopify returns fulfillments with tracking_number/company/url for this store's client-credentials token (no extra scope needed).
+- Fixed conversation order cards: tracking chip now renders as its own row below the order details (no longer nested inside the order link, so Track opens the courier page without triggering order navigation).
+- Phone matching verified against live data (e.g. conversation 923090344627 → 1 dispatched order with tracking).

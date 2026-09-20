@@ -310,25 +310,22 @@ export default function Conversations() {
             {detail?.orders?.length ? (
               <div data-testid="conversation-orders" className="space-y-2">
                 {detail.orders.map((order) => (
-                  <Link
-                    key={order.id}
-                    data-testid={`conversation-order-${order.id}`}
-                    to={`/orders?order=${encodeURIComponent(order.order_number)}`}
-                    className="block border border-border/60 rounded-md p-3 hover:border-[hsl(var(--whatsapp))] hover:bg-emerald-50/40 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium tnum">#{order.order_number}</span>
-                      <span className="text-sm tnum font-semibold">{rs(order.total)}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 truncate">
-                      {(order.items || []).map((item) => `${item.title}${item.variant ? ` (${item.variant})` : ""} ×${item.qty}`).join(", ") || "—"}
-                    </p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[11px] text-muted-foreground tnum">{fmtOrderDate(order.order_date || order.created_at)}</span>
-                      <Pill tone={order.fulfillment_status}>{order.fulfillment_status || "pending"}</Pill>
-                    </div>
+                  <div key={order.id} data-testid={`conversation-order-${order.id}`} className="border border-border/60 rounded-md hover:border-[hsl(var(--whatsapp))] transition-colors overflow-hidden">
+                    <Link to={`/orders?order=${encodeURIComponent(order.order_number)}`} className="block p-3 hover:bg-emerald-50/40 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium tnum">#{order.order_number}</span>
+                        <span className="text-sm tnum font-semibold">{rs(order.total)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">
+                        {(order.items || []).map((item) => `${item.title}${item.variant ? ` (${item.variant})` : ""} ×${item.qty}`).join(", ") || "—"}
+                      </p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[11px] text-muted-foreground tnum">{fmtOrderDate(order.order_date || order.created_at)}</span>
+                        <Pill tone={order.fulfillment_status}>{order.fulfillment_status || "pending"}</Pill>
+                      </div>
+                    </Link>
                     {(order.fulfillments || []).map((f, idx) => (
-                      <div key={idx} data-testid={`tracking-${order.id}-${idx}`} className="mt-2 flex items-center justify-between gap-2 rounded-md bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-[11px] text-sky-900">
+                      <div key={idx} data-testid={`tracking-${order.id}-${idx}`} className="flex items-center justify-between gap-2 border-t border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] text-sky-900">
                         <span className="inline-flex items-center gap-1.5 min-w-0">
                           <Truck size={13} className="shrink-0" />
                           <span className="truncate">{f.tracking_company || "Courier"}{f.tracking_number ? ` · ${f.tracking_number}` : ""}{f.shipment_status ? ` · ${f.shipment_status.replace(/_/g, " ")}` : ""}</span>
@@ -340,7 +337,7 @@ export default function Conversations() {
                         )}
                       </div>
                     ))}
-                  </Link>
+                  </div>
                 ))}
               </div>
             ) : (
