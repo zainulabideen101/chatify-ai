@@ -210,3 +210,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - **100 most-recent cap** on `db.shopify_orders`: every webhook insert prunes the merchant's orders past the 100th newest. Local `/api/orders` list hard-caps its limit to 100.
 - One-time cleanup: pruned the Turbo Gear merchant from 2188 → 100 orders.
 - Verified with the live Shopify token: `list_orders_by_phone` returned the correct order (11598, Rs 999, PostEx tracking 22336670007560) for all three phone formats: `+92 309 0344627`, `923090344627`, `03090344627`.
+
+
+## 2026-02 — Root Cause: read_all_orders Scope (60-Day Window)
+- User reported old orders (+92 324 222 4487, +92 317 429 8055) not appearing in the conversation panel.
+- Diagnosed: the app's access token has `read_orders` but NOT `read_all_orders`, so Shopify only exposes orders from the last 60 days. Confirmed: oldest visible order is exactly at the 60-day cutoff (2026-07-22); both affected customers exist (customer_found=True) but their orders predate the window.
+- `list_orders_by_phone` now returns `{orders, customer_found}`; conversation detail adds `orders_scope_hint` so the panel shows a targeted fix message (add read_all_orders scope in Dev Dashboard → reconnect) instead of a bare empty state.
+- Merchant action required: Shopify Dev Dashboard → app → Configuration → enable `read_all_orders` scope → Save → reconnect in Chatify Settings (new token must carry the scope).

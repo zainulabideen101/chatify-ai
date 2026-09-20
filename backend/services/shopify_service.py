@@ -298,20 +298,23 @@ class ShopifyService:
             {"merchant_id": oid}, {"$set": {"last_order_sync": now}})
         return {"synced": True, "orders_created": created, "orders_updated": updated}
 
-    async def list_orders_by_phone(self, shop_domain: str, access_token: str, phone: str, limit: int = 5) -> list[dict]:
+    async def list_orders_by_phone(self, shop_domain: str, access_token: str, phone: str, limit: int = 5) -> dict:
         """Fetch a customer's recent orders live from Shopify, matched by phone.
 
         Uses /customers/search.json to find the Shopify customer(s) by digit-only
         phone (Pakistani 92... form), then fetches each customer's most recent
-        orders including fulfillments/tracking. Returns [] when nothing matches.
+        orders including fulfillments/tracking. Returns {"orders": [...],
+        "customer_found": bool} — customer_found=True with zero orders means the
+        app is limited to Shopify's 60-day order window (needs read_all_orders).
         """
+        empty = {"orders": [], "customer_found": False}
         if not access_token or not phone:
-            return []
+            return empty
         import re
         import requests
         digits = re.sub(r"\D", "", phone)
         if len(digits) < 10:
-            return []
+            return empty
         last10 = digits[-10:]
         headers = {"X-Shopify-Access-Token": access_token}
         # Shopify's customer search matches suffixes reasonably well; try a few
@@ -352,7 +355,8 @@ class ShopifyService:
         for o in orders:
             by_id[str(o["id"])] = o
         merged = sorted(by_id.values(), key=lambda x: x.get("created_at") or "", reverse=True)[:limit]
-        return [self._project_order_card(o) for o in merged]
+        return {"orders": [self._project_order_card(o) for o in merged],
+                "customer_found": bool(seen_customer_ids)}
 
     @staticmethod
     def _project_order_card(o: dict) -> dict:

@@ -173,16 +173,20 @@ async def get_conversation(cid: str, tid: str = Depends(get_tenant_id)):
     mid = _oid(tid)
     phone = conv.get("customer_phone") or (customer or {}).get("phone") or ""
     orders: list = []
+    orders_scope_hint = False
     connection = await db.shopify_connections.find_one({"merchant_id": mid})
     if connection and phone:
         try:
             token = await shopify_service.ensure_access_token(connection)
-            orders = await shopify_service.list_orders_by_phone(
+            lookup = await shopify_service.list_orders_by_phone(
                 connection["shop_domain"], token, phone, limit=5)
+            orders = lookup["orders"]
+            orders_scope_hint = lookup["customer_found"] and not orders
         except Exception:
             orders = []
     return {**serialize(conv), "messages": serialize_list(messages),
-            "customer": serialize(customer), "orders": orders}
+            "customer": serialize(customer), "orders": orders,
+            "orders_scope_hint": orders_scope_hint}
 
 
 @router.get("/conversations/{cid}/summary")

@@ -341,7 +341,14 @@ export default function Conversations() {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground border border-dashed rounded-md p-3">No orders linked to this customer yet.</p>
+              <div className="text-xs border border-dashed rounded-md p-3 space-y-1.5">
+                <p className="text-muted-foreground">No recent orders found for this number in Shopify.</p>
+                {detail?.orders_scope_hint && (
+                  <p data-testid="orders-scope-hint" className="text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
+                    Shopify found this customer, but their orders are older than 60 days. Your Shopify app needs the <b>read_all_orders</b> scope: Dev Dashboard → your app → Configuration → add <b>read_all_orders</b> → Save, then reconnect Shopify in Settings.
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
