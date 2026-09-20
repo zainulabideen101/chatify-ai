@@ -1,16 +1,16 @@
-"""Shopify integration service (per-merchant Client ID + Client Secret, OAuth).
+"""Shopify integration service (per-merchant Client ID + Client Secret).
 
 Each merchant pastes the Client ID and Client Secret of their own Shopify app
-(Dev Dashboard → app Settings). Chatify AI then runs the authorization-code
-grant: redirect to the store's /admin/oauth/authorize, verify the HMAC on the
-callback, and exchange the code for a permanent offline access token. All Admin
-API calls use that encrypted per-store token.
+(Dev Dashboard → app Settings). Chatify AI exchanges them directly for an Admin
+API access token via Shopify's client-credentials grant — no merchant redirect.
+Tokens expire after ~24 hours and are refreshed automatically with the stored
+(encrypted) credentials whenever an Admin API call is made.
 """
 import os
 import hmac
 import hashlib
 import base64
-from urllib.parse import urlencode
+from datetime import datetime, timedelta, timezone
 
 
 class ShopifyNotConfigured(Exception):
@@ -22,40 +22,74 @@ class ShopifyAPIError(Exception):
 
 
 class ShopifyService:
+    TOKEN_TTL_SECONDS = 86399  # Shopify client-credentials token lifetime (24h)
+    REFRESH_MARGIN_MINUTES = 5
+
     def __init__(self):
         self.API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
-        self.scopes = os.environ.get("SHOPIFY_SCOPES", "read_products,read_orders,write_orders,read_customers")
 
-    def build_authorize_url(self, shop_domain: str, client_id: str, redirect_uri: str, state: str) -> str:
-        """Step 1 of the authorization-code grant: URL the merchant is sent to."""
-        params = {
-            "client_id": client_id,
-            "scope": self.scopes,
-            "redirect_uri": redirect_uri,
-            "state": state,
-        }
-        return f"https://{shop_domain}/admin/oauth/authorize?{urlencode(params)}"
-
-    def verify_hmac(self, query_params: dict, client_secret: str) -> bool:
-        """Verify the HMAC on the Shopify OAuth callback query params."""
-        provided = query_params.get("hmac", "")
-        pairs = "&".join(
-            f"{k}={v}" for k, v in sorted(query_params.items()) if k != "hmac"
-        )
-        digest = hmac.new(client_secret.encode(), pairs.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(digest, provided)
-
-    async def exchange_code(self, shop_domain: str, client_id: str, client_secret: str, code: str) -> str:
-        """Exchange the authorization code for a permanent offline access token."""
+    async def exchange_client_credentials(self, shop_domain: str, client_id: str, client_secret: str) -> dict:
+        """Exchange client credentials for a 24h Admin API access token (no redirect)."""
         import requests
-        resp = requests.post(
-            f"https://{shop_domain}/admin/oauth/access_token",
-            json={"client_id": client_id, "client_secret": client_secret, "code": code},
-            timeout=20,
-        )
+        try:
+            resp = requests.post(
+                f"https://{shop_domain}/admin/oauth/access_token",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret},
+                timeout=20,
+            )
+        except requests.RequestException as exc:
+            raise ShopifyAPIError(f"Could not reach Shopify: {exc}") from exc
+        body = {}
+        try:
+            body = resp.json()
+        except ValueError:
+            pass
         if resp.status_code >= 400:
-            raise ShopifyAPIError(f"Shopify rejected the token exchange (HTTP {resp.status_code}).")
-        return resp.json()["access_token"]
+            detail = body.get("error") or body.get("error_description") or f"HTTP {resp.status_code}"
+            if "shop_not_permitted" in str(detail):
+                detail = ("Shopify says this shop is not permitted for these credentials — the store and the "
+                          "app must belong to the same organization in the Shopify Dev Dashboard.")
+            raise ShopifyAPIError(f"Shopify rejected the client credentials: {detail}")
+        token = body.get("access_token")
+        if not token:
+            raise ShopifyAPIError("Shopify did not return an access token.")
+        return {"access_token": token, "expires_in": int(body.get("expires_in") or self.TOKEN_TTL_SECONDS)}
+
+    async def ensure_access_token(self, connection: dict) -> str:
+        """Return a valid plain access token, refreshing via client credentials if expired."""
+        from database import db
+        from services.crypto import decrypt_secret, encrypt_secret
+
+        token_enc = connection.get("access_token_enc")
+        if token_enc:
+            expires_at = connection.get("token_expires_at")
+            if not expires_at:
+                return decrypt_secret(token_enc)  # legacy long-lived token, no refresh needed
+            try:
+                exp = datetime.fromisoformat(expires_at)
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) < exp - timedelta(minutes=self.REFRESH_MARGIN_MINUTES):
+                    return decrypt_secret(token_enc)
+            except ValueError:
+                pass
+
+        client_id_enc = connection.get("client_id_enc")
+        client_secret_enc = connection.get("client_secret_enc")
+        if not client_id_enc or not client_secret_enc:
+            if token_enc:
+                return decrypt_secret(token_enc)
+            raise ShopifyNotConfigured("Connect a Shopify store first.")
+        creds = await self.exchange_client_credentials(
+            connection["shop_domain"], decrypt_secret(client_id_enc), decrypt_secret(client_secret_enc))
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=creds["expires_in"])).isoformat()
+        await db.shopify_connections.update_one(
+            {"_id": connection["_id"], "merchant_id": connection["merchant_id"]},
+            {"$set": {"access_token_enc": encrypt_secret(creds["access_token"]),
+                      "token_expires_at": expires_at, "token_refreshed_at": iso_now_str()}},
+        )
+        return creds["access_token"]
 
     async def verify_admin_token(self, shop_domain: str, access_token: str) -> dict:
         """Call /shop.json to confirm the token is valid and fetch shop metadata."""
@@ -69,7 +103,7 @@ class ShopifyService:
         except requests.RequestException as exc:
             raise ShopifyAPIError(f"Could not reach Shopify: {exc}") from exc
         if resp.status_code in (401, 403):
-            raise ShopifyAPIError("Shopify rejected the access token. Verify scopes and re-install the custom app.")
+            raise ShopifyAPIError("Shopify rejected the access token. Verify the app's access scopes.")
         if resp.status_code == 404:
             raise ShopifyAPIError("Shop not found. Double-check the .myshopify.com domain.")
         if resp.status_code >= 400:
@@ -86,18 +120,15 @@ class ShopifyService:
         ).decode()
         return hmac.compare_digest(digest, hmac_header or "")
 
-    async def sync_catalog(self, shop_domain: str, access_token_enc: str, merchant_id: str) -> dict:
+    async def sync_catalog(self, shop_domain: str, access_token: str, merchant_id: str) -> dict:
         """Pull products/variants from Shopify Admin API into the tenant catalog."""
-        if not access_token_enc:
+        if not access_token:
             raise ShopifyNotConfigured("Connect a Shopify store first.")
         import requests
         from bson import ObjectId
-        from datetime import datetime, timezone
         from database import db
-        from services.crypto import decrypt_secret
 
-        token = decrypt_secret(access_token_enc)
-        headers = {"X-Shopify-Access-Token": token}
+        headers = {"X-Shopify-Access-Token": access_token}
         url = f"https://{shop_domain}/admin/api/{self.API_VERSION}/products.json?limit=250"
         errors = 0
         products = variants = 0
@@ -112,7 +143,7 @@ class ShopifyService:
                     {"$set": {"merchant_id": oid, "shopify_product_id": p["id"],
                               "title": p["title"], "status": p.get("status", "active"),
                               "price": float(p["variants"][0]["price"]) if p.get("variants") else 0,
-                              "image": image, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                              "image": image, "updated_at": iso_now_str()}},
                     upsert=True)
                 pdoc = await db.products.find_one({"merchant_id": oid, "shopify_product_id": p["id"]})
                 products += 1
@@ -126,7 +157,6 @@ class ShopifyService:
                                   "inventory": inv, "sku": v.get("sku")}},
                         upsert=True)
                     variants += 1
-            # pagination via Link header
             link = resp.headers.get("Link", "")
             nxt = None
             for part in link.split(","):
@@ -136,20 +166,16 @@ class ShopifyService:
 
         await db.shopify_connections.update_one(
             {"merchant_id": oid},
-            {"$set": {"last_sync": datetime.now(timezone.utc).isoformat(), "sync_errors": errors}})
+            {"$set": {"last_sync": iso_now_str(), "sync_errors": errors}})
         return {"synced": True, "products": products, "variants": variants, "errors": errors}
 
-    async def create_order(self, shop_domain: str, access_token_enc: str, payload: dict) -> dict:
+    async def create_order(self, shop_domain: str, access_token: str, payload: dict) -> dict:
         """Create an order via Shopify Admin API."""
-        if not access_token_enc:
-            raise ShopifyNotConfigured("Cannot create Shopify order: no authorized Shopify connection.")
         import requests
-        from services.crypto import decrypt_secret
-        token = decrypt_secret(access_token_enc)
         try:
             resp = requests.post(
                 f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders.json",
-                headers={"X-Shopify-Access-Token": token},
+                headers={"X-Shopify-Access-Token": access_token},
                 json={"order": payload}, timeout=30)
         except requests.RequestException as exc:
             raise ShopifyAPIError("Shopify order creation could not be reached.") from exc
@@ -161,17 +187,13 @@ class ShopifyService:
             raise ShopifyAPIError("Shopify rejected the order payload.")
         return resp.json()["order"]
 
-    async def cancel_order(self, shop_domain: str, access_token_enc: str, shopify_order_id: str) -> dict:
+    async def cancel_order(self, shop_domain: str, access_token: str, shopify_order_id: str) -> dict:
         """Cancel an open Shopify order through the official Admin API."""
-        if not access_token_enc:
-            raise ShopifyNotConfigured("Cannot cancel Shopify order: no authorized Shopify connection.")
         import requests
-        from services.crypto import decrypt_secret
-        token = decrypt_secret(access_token_enc)
         try:
             resp = requests.post(
                 f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders/{shopify_order_id}/cancel.json",
-                headers={"X-Shopify-Access-Token": token},
+                headers={"X-Shopify-Access-Token": access_token},
                 json={"reason": "customer", "email": True}, timeout=30)
         except requests.RequestException as exc:
             raise ShopifyAPIError("Shopify cancellation could not be reached.") from exc
@@ -183,16 +205,12 @@ class ShopifyService:
             raise ShopifyAPIError("Shopify rejected the cancellation because the order may already be closed or cancelled.")
         return resp.json().get("order", {})
 
-    async def update_payment_review(self, shop_domain: str, access_token_enc: str,
+    async def update_payment_review(self, shop_domain: str, access_token: str,
                                     shopify_order_id: str, approved: bool,
                                     amount: float, note: str) -> dict:
         """Reflect a seller's payment review decision in Shopify."""
-        if not access_token_enc:
-            raise ShopifyNotConfigured("Cannot update Shopify payment review without an authorized store.")
         import requests
-        from services.crypto import decrypt_secret
-        token = decrypt_secret(access_token_enc)
-        headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+        headers = {"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"}
         if approved:
             resp = requests.post(
                 f"https://{shop_domain}/admin/api/{self.API_VERSION}/orders/{shopify_order_id}/transactions.json",
@@ -214,6 +232,10 @@ class ShopifyService:
         if resp.status_code >= 400:
             raise ShopifyAPIError("Shopify rejected the payment review update.")
         return resp.json()
+
+
+def iso_now_str() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 shopify_service = ShopifyService()

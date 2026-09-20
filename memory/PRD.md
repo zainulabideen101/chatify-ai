@@ -159,3 +159,10 @@ Verified by testing agent: cross-tenant reads return 404, new merchant sees empt
 - `POST /api/integrations/shopify/connect` returns the store's `/admin/oauth/authorize` URL; Shopify redirects back to `GET /api/integrations/shopify/callback`, which verifies the HMAC with the merchant's Client Secret and exchanges the code for a permanent offline access token.
 - The resulting access token is encrypted and tenant-scoped; catalog sync, order create/cancel, and payment-review sync reuse it unchanged.
 - Callback redirects to `/settings?shopify=connected` for a success toast. Verified: connect endpoint builds a correct HTTPS authorize URL, invalid callback state returns 400, backend healthy.
+
+
+## 2026-02 — Direct Shopify Connect (Client Credentials Grant, No Redirect)
+- Removed the OAuth redirect flow. `POST /api/integrations/shopify/connect` now exchanges the merchant's Client ID + Client Secret directly via Shopify's client-credentials grant (`grant_type=client_credentials`, form-encoded) and verifies the resulting token against `/shop.json`.
+- Tokens are 24h short-lived; `shopify_service.ensure_access_token` auto-refreshes from the encrypted stored credentials before every Admin API call (catalog sync, order create/cancel, payment review).
+- Settings UI connects inline (no redirect): domain + Client ID + Client Secret → Connected. Errors surface Shopify's real response, including the same-organization (`shop_not_permitted`) requirement.
+- Verified via curl: bad domain 400, fake credentials hit live Shopify and return its real 404 rejection as 400, connection status clean, backend healthy. Real-store connect awaits the user's actual credentials.

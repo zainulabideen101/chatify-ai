@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { PageHeader } from "@/components/Layout";
 import { Section, useFetch } from "@/components/bits";
 import { api } from "@/lib/api";
@@ -9,18 +8,10 @@ import { ShoppingBagOpen, CheckCircle, Warning, ArrowClockwise } from "@phosphor
 export default function Settings() {
   const { data: merchant, setData: setMerchant } = useFetch("/merchant");
   const { data: status, reload } = useFetch("/integrations/status");
-  const [params] = useSearchParams();
   const [shop, setShop] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [connecting, setConnecting] = useState(false);
-
-  useEffect(() => {
-    if (params.get("shopify") === "connected") {
-      toast.success("Shopify connected successfully");
-      reload();
-    }
-  }, [params, reload]);
 
   const saveProfile = async () => {
     const { data } = await api.put("/merchant", {
@@ -37,11 +28,11 @@ export default function Settings() {
       const { data } = await api.post("/integrations/shopify/connect", {
         shop_domain: shop.trim(), client_id: clientId.trim(), client_secret: clientSecret.trim(),
       });
-      window.location.href = data.authorize_url;
+      toast.success(`${data.shop_name || data.shop_domain} connected`);
+      setShop(""); setClientId(""); setClientSecret(""); reload();
     } catch (e) {
-      setConnecting(false);
-      toast.error(e.response?.data?.detail || "Could not start the Shopify connection");
-    }
+      toast.error(e.response?.data?.detail || "Shopify could not verify these credentials");
+    } finally { setConnecting(false); }
   };
   const disconnectShopify = async () => {
     try { await api.post("/integrations/shopify/disconnect"); toast.success("Shopify disconnected"); reload(); }
@@ -78,7 +69,7 @@ export default function Settings() {
             </div>
 
             <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded-md p-3">
-              Paste the <b>Client ID</b> and <b>Client Secret</b> of your Shopify app (Shopify Dev Dashboard → your app → Settings). You will be redirected to your store to approve access. Make sure your app's allowed redirect URL includes the callback shown when you press Connect.
+              Paste the <b>Client ID</b> and <b>Client Secret</b> of your Shopify app (Shopify Dev Dashboard → your app → Settings). Connection is direct — no redirect. Note: the store and the app must belong to the same Shopify organization.
             </div>
 
             {sh?.connected ? (
@@ -98,14 +89,14 @@ export default function Settings() {
                 <label className="block space-y-1.5"><span className="text-xs font-medium">Shop domain</span><input data-testid="shop-domain" value={shop} onChange={(e) => setShop(e.target.value)} placeholder="my-store.myshopify.com" className="w-full h-10 px-3 rounded-md border border-input text-sm" /></label>
                 <label className="block space-y-1.5"><span className="text-xs font-medium">Client ID</span><input data-testid="shopify-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="Shopify app Client ID" className="w-full h-10 px-3 rounded-md border border-input text-sm" /></label>
                 <label className="block space-y-1.5"><span className="text-xs font-medium">Client Secret</span><input data-testid="shopify-client-secret" type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder="Shopify app Client Secret" className="w-full h-10 px-3 rounded-md border border-input text-sm" /></label>
-                <button data-testid="connect-shopify-btn" disabled={connecting} onClick={connectShopify} className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">{connecting ? "Redirecting..." : "Connect Shopify"}</button>
+                <button data-testid="connect-shopify-btn" disabled={connecting} onClick={connectShopify} className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">{connecting ? "Connecting..." : "Connect Shopify"}</button>
               </div>
             )}
           </div>
         </div>
 
         <div className="text-xs text-muted-foreground border border-border/60 rounded-lg p-4">
-          <b className="text-foreground">Shopify connection.</b> Your Shopify app's Client ID and Client Secret authorize the connection; the resulting access token and your credentials are encrypted before storage and never shown again.
+          <b className="text-foreground">Shopify connection.</b> Your Shopify app's Client ID and Client Secret connect directly — no OAuth redirect. The access token refreshes automatically every 24 hours; your credentials are encrypted before storage and never shown again.
         </div>
       </Section>
     </>

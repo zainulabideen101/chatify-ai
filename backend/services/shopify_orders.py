@@ -105,7 +105,7 @@ async def create_customer_order(merchant_id: str, conversation_id: str | None, a
 
     connection = await db.shopify_connections.find_one({"merchant_id": oid})
     shopify_synced = False
-    if connection and connection.get("access_token_enc") and len(line_items) == len(local_items):
+    if connection and len(line_items) == len(local_items):
         payload = {
             "line_items": line_items, "financial_status": "pending", "shipping_address": shipping_address,
             "note": "Created by Chatify AI from WhatsApp", "tags": "chatify-ai",
@@ -113,7 +113,8 @@ async def create_customer_order(merchant_id: str, conversation_id: str | None, a
             "note_attributes": [{"name": "chatify_conversation_id", "value": conversation_id or ""}],
         }
         try:
-            shopify_order = await shopify_service.create_order(connection["shop_domain"], connection["access_token_enc"], payload)
+            token = await shopify_service.ensure_access_token(connection)
+            shopify_order = await shopify_service.create_order(connection["shop_domain"], token, payload)
             shopify_id = str(shopify_order.get("id"))
             synced_total = float(shopify_order.get("total_price") or local_total)
             await db.shopify_orders.update_one(
@@ -128,7 +129,7 @@ async def create_customer_order(merchant_id: str, conversation_id: str | None, a
         except (ShopifyNotConfigured, ShopifyAPIError) as exc:
             await db.shopify_orders.update_one({"_id": local_id, "merchant_id": oid},
                                                {"$set": {"sync_status": "sync_pending", "sync_error": str(exc)[:240]}})
-    elif connection and connection.get("access_token_enc"):
+    elif connection:
         await db.shopify_orders.update_one({"_id": local_id, "merchant_id": oid},
                                            {"$set": {"sync_status": "sync_pending", "sync_error": "Catalog variant sync is required."}})
 
@@ -163,10 +164,11 @@ async def cancel_latest_customer_order(merchant_id: str, customer_phone: str) ->
     await db.customers.update_one({"_id": customer["_id"], "merchant_id": oid}, {"$inc": {"cancelled_orders": 1}})
 
     connection = await db.shopify_connections.find_one({"merchant_id": oid})
-    if connection and connection.get("access_token_enc") and order.get("shopify_order_id"):
+    if connection and order.get("shopify_order_id"):
         try:
+            token = await shopify_service.ensure_access_token(connection)
             shopify_order = await shopify_service.cancel_order(
-                connection["shop_domain"], connection["access_token_enc"], order["shopify_order_id"])
+                connection["shop_domain"], token, order["shopify_order_id"])
             await db.shopify_orders.update_one(
                 {"_id": order["_id"], "merchant_id": oid},
                 {"$set": {"cancellation_status": "cancelled_on_shopify", "shopify_cancelled_at": now}})

@@ -91,15 +91,15 @@ async def integrations_status(tid: str = Depends(get_tenant_id)):
     }
 
 
-# ---------- Shopify (per-merchant Client ID/Secret OAuth) ----------
+# ---------- Shopify (per-merchant Client ID/Secret, client-credentials grant) ----------
 @router.post("/shopify/connect")
-async def shopify_connect(payload: ShopifyConnectRequest, request: Request, tid: str = Depends(get_tenant_id)):
-    """Start the Shopify authorization-code flow with the merchant's own app credentials.
+async def shopify_connect(payload: ShopifyConnectRequest, tid: str = Depends(get_tenant_id)):
+    """Connect directly with the merchant's Shopify app Client ID and Client Secret.
 
-    The merchant pastes the Client ID and Client Secret of their Shopify app.
-    We store them (encrypted) against a short-lived state record and return the
-    store's authorize URL. Shopify redirects back to /shopify/callback with a
-    code, which is exchanged for a permanent offline access token.
+    No OAuth redirect: the credentials are exchanged server-side via Shopify's
+    client-credentials grant for a 24h Admin API access token, which is then
+    refreshed automatically whenever it expires. The store and the app must
+    belong to the same organization in the Shopify Dev Dashboard.
     """
     shop_domain = (payload.shop_domain or "").strip().lower()
     client_id = (payload.client_id or "").strip()
@@ -109,62 +109,34 @@ async def shopify_connect(payload: ShopifyConnectRequest, request: Request, tid:
     if len(client_id) < 10 or len(client_secret) < 10:
         raise HTTPException(status_code=400, detail="Enter the Client ID and Client Secret from your Shopify app settings.")
 
-    state = secrets.token_urlsafe(24)
-    await db.oauth_states.insert_one({
-        "state": state, "merchant_id": ObjectId(tid),
-        "shop_domain": shop_domain,
-        "client_id_enc": encrypt_secret(client_id),
-        "client_secret_enc": encrypt_secret(client_secret),
-        "created_at": iso_now(),
-    })
-    backend = str(request.base_url).rstrip("/")
-    if backend.startswith("http://") and "localhost" not in backend and "127.0.0.1" not in backend:
-        backend = "https://" + backend[len("http://"):]
-    redirect_uri = f"{backend}/api/integrations/shopify/callback"
-    url = shopify_service.build_authorize_url(shop_domain, client_id, redirect_uri, state)
-    await log_action(tid, "shopify_connect_initiated", actor="merchant",
-                     detail={"shop": shop_domain, "redirect_uri": redirect_uri})
-    return {"authorize_url": url, "redirect_uri": redirect_uri}
-
-
-@router.get("/shopify/callback")
-async def shopify_callback(request: Request):
-    params = dict(request.query_params)
-    st = await db.oauth_states.find_one({"state": params.get("state")})
-    if not st:
-        raise HTTPException(status_code=400, detail="Invalid or expired state. Restart the connect flow.")
-    client_id = decrypt_secret(st["client_id_enc"])
-    client_secret = decrypt_secret(st["client_secret_enc"])
-    if not shopify_service.verify_hmac(params, client_secret):
-        raise HTTPException(status_code=400, detail="Invalid HMAC signature on Shopify callback.")
-    shop = params.get("shop", st.get("shop_domain", "")).lower()
     try:
-        token = await shopify_service.exchange_code(shop, client_id, client_secret, params["code"])
+        creds = await shopify_service.exchange_client_credentials(shop_domain, client_id, client_secret)
+        shop_info = await shopify_service.verify_admin_token(shop_domain, creds["access_token"])
     except ShopifyAPIError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    try:
-        shop_info = await shopify_service.verify_admin_token(shop, token)
-    except Exception:
-        shop_info = {}
+
+    from datetime import datetime, timedelta, timezone
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=creds["expires_in"])).isoformat()
     await db.shopify_connections.update_one(
-        {"merchant_id": st["merchant_id"]},
+        {"merchant_id": ObjectId(tid)},
         {"$set": {
-            "merchant_id": st["merchant_id"], "shop_domain": shop,
-            "access_token_enc": encrypt_secret(token),
-            "connection_type": "oauth",
-            "client_id_enc": st["client_id_enc"],
-            "client_secret_enc": st["client_secret_enc"],
+            "merchant_id": ObjectId(tid),
+            "shop_domain": shop_domain,
+            "client_id_enc": encrypt_secret(client_id),
+            "client_secret_enc": encrypt_secret(client_secret),
+            "access_token_enc": encrypt_secret(creds["access_token"]),
+            "token_expires_at": expires_at,
+            "connection_type": "client_credentials",
             "shop_name": shop_info.get("name"),
             "shop_email": shop_info.get("email"),
-            "connected_at": iso_now(), "last_sync": None, "sync_errors": 0,
+            "connected_at": iso_now(),
+            "last_sync": None, "sync_errors": 0,
         }},
         upsert=True,
     )
-    await db.oauth_states.delete_one({"_id": st["_id"]})
-    await log_action(str(st["merchant_id"]), "shopify_connected", actor="merchant",
-                     detail={"shop": shop, "type": "oauth"})
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/settings?shopify=connected")
+    await log_action(tid, "shopify_connected", actor="merchant",
+                     detail={"shop": shop_domain, "type": "client_credentials"})
+    return {"ok": True, "shop_domain": shop_domain, "shop_name": shop_info.get("name")}
 
 
 @router.post("/shopify/disconnect")
@@ -180,11 +152,14 @@ async def shopify_sync(tid: str = Depends(get_tenant_id)):
     if not conn:
         raise HTTPException(status_code=400, detail="Connect a Shopify store first")
     try:
-        result = await shopify_service.sync_catalog(conn["shop_domain"], conn.get("access_token_enc"), tid)
+        token = await shopify_service.ensure_access_token(conn)
+        result = await shopify_service.sync_catalog(conn["shop_domain"], token, tid)
         await log_action(tid, "shopify_catalog_synced", actor="merchant", detail=result)
         return result
     except ShopifyNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except ShopifyAPIError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ---------- WhatsApp / Meta ----------
