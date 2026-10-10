@@ -104,8 +104,9 @@ async def tool_search_catalog(
         if attributes:
             for k, vals in attributes.items():
                 attr_stop_words.add(k.lower())
-                for v in vals:
-                    attr_stop_words.update(v.lower().replace('-', ' ').split())
+                v_list = vals if isinstance(vals, list) else [vals]
+                for v in v_list:
+                    attr_stop_words.update(str(v).lower().replace('-', ' ').split())
 
         # 5. Add ecosystems and purely conversational generic device nouns
         ecosystems = [eco.lower() for eco in intel.get("supported_ecosystems", [])]
